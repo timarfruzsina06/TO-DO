@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Heti teendők</title>
+</head>
+<body style="margin:0;">
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<script>
+  // Ezt a heti-todo.firebaseapp.com projekthez tartozó konfigurációt
+  // a Firebase Console adta (Project settings → Your apps).
+  const firebaseConfig = {
+    apiKey: "AIzaSyCHA0MVuwkXwebSkR39rjDj3Dno4TB1iNA",
+    authDomain: "heti-todo.firebaseapp.com",
+    projectId: "heti-todo",
+    storageBucket: "heti-todo.firebasestorage.app",
+    messagingSenderId: "429324944308",
+    appId: "1:429324944308:web:ce8ff861e264208e7bb1f1",
+    measurementId: "G-VGEXS80W5P",
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+  // Egyedi, titkos dokumentum-azonosító – ez köti össze a gépet és a telefont.
+  const todoDocRef = db.collection("hetiTodoShared").doc("todo_4c00a8a6a9162101");
+</script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// Egyszerű ikon-helyettesítők (Unicode karakterek), hogy ne kelljen külön
+// ikon-könyvtárat betölteni önálló fájlként futtatva.
+function X({ size = 13 }) { return <span style={{ fontSize: size, lineHeight: 1 }}>✕</span>; }
+function RefreshCw({ size = 11 }) { return <span style={{ fontSize: size, lineHeight: 1 }}>⟳</span>; }
+function ChevronLeft({ size = 14 }) { return <span style={{ fontSize: size + 2, lineHeight: 1 }}>‹</span>; }
+function ChevronRight({ size = 14 }) { return <span style={{ fontSize: size + 2, lineHeight: 1 }}>›</span>; }
+function Plus({ size = 13 }) { return <span style={{ fontSize: size + 1, lineHeight: 1 }}>+</span>; }
+
+
+const COLORS = {
+  bg: "#FDF6F6",
+  panel: "#F7DCE0",
+  panelSoft: "#FCEEF1",
+  text: "#3D3132",
+  textSoft: "#8A7A7C",
+  border: "#E8AEB7",
+  accent: "#E4728A",
+  accentDark: "#C24F68",
+};
+
+const LILY_VARIANTS = [
+  { grad: "lgPink", vein: "#C24F68", speck: "#B33A63" },
+  { grad: "lgLav", vein: "#9C5FA0", speck: "#8B4A96" },
+  { grad: "lgPeach", vein: "#C97A3E", speck: "#B5651D" },
+];
+
+const GRADIENT_DEFS = `<defs>
+  <linearGradient id="lgPink" x1="0%" y1="100%" x2="0%" y2="0%">
+    <stop offset="0%" stop-color="#FBEEE6"/>
+    <stop offset="45%" stop-color="#F6C3D6"/>
+    <stop offset="100%" stop-color="#E37FA0"/>
+  </linearGradient>
+  <linearGradient id="lgLav" x1="0%" y1="100%" x2="0%" y2="0%">
+    <stop offset="0%" stop-color="#F7EEF7"/>
+    <stop offset="45%" stop-color="#E3C6E8"/>
+    <stop offset="100%" stop-color="#C58BCB"/>
+  </linearGradient>
+  <linearGradient id="lgPeach" x1="0%" y1="100%" x2="0%" y2="0%">
+    <stop offset="0%" stop-color="#FBF0DE"/>
+    <stop offset="45%" stop-color="#F5D0A0"/>
+    <stop offset="100%" stop-color="#E39F5E"/>
+  </linearGradient>
+</defs>`;
+
+function lilyMotif(cx, cy, scale, rotate, variant, withSpeckles) {
+  const petal = (angle, i) => {
+    const speckles =
+      withSpeckles && i < 2
+        ? `<circle cx="1.6" cy="-5" r="0.5" fill="${variant.speck}" fill-opacity="0.55"/>
+           <circle cx="-1.2" cy="-7" r="0.4" fill="${variant.speck}" fill-opacity="0.5"/>
+           <circle cx="0.8" cy="-8.5" r="0.4" fill="${variant.speck}" fill-opacity="0.5"/>`
+        : "";
+    return `<g transform="rotate(${angle})">
+      <path d="M0,0 C7,-3 8,-13 4,-20 C6,-22 3,-23.5 0,-21 C-3,-23.5 -6,-22 -4,-20 C-8,-13 -7,-3 0,0 Z" fill="url(#${variant.grad})"/>
+      <path d="M0,-2 Q1.2,-11 0,-20" fill="none" stroke="${variant.vein}" stroke-width="0.6" stroke-opacity="0.45"/>
+      ${speckles}
+    </g>`;
+  };
+  const petals = [0, 60, 120, 180, 240, 300].map(petal).join("");
+  const stamen = (angle, len) => `<g transform="rotate(${angle})">
+    <path d="M0,0 Q3,-${len * 0.6} 2,-${len}" fill="none" stroke="#AABE7C" stroke-width="0.9" stroke-linecap="round"/>
+    <ellipse cx="2" cy="-${len}" rx="1.4" ry="2.3" fill="#B5651D" transform="rotate(${angle / 2} 2 -${len})"/>
+  </g>`;
+  const stamens = [
+    stamen(8, 10),
+    stamen(-22, 11),
+    stamen(48, 9),
+    stamen(-52, 10),
+    stamen(78, 8),
+  ].join("");
+  return `<g transform="translate(${cx},${cy}) rotate(${rotate}) scale(${scale})">
+    ${petals}${stamens}
+    <path d="M0,0 L0,-6" stroke="#CBDBA0" stroke-width="1.1" stroke-linecap="round"/>
+    <ellipse cx="0" cy="-6.5" rx="1" ry="1.4" fill="#CBDBA0"/>
+  </g>`;
+}
+
+function buildFloralTile() {
+  const motifs = [
+    lilyMotif(35, 38, 1, 8, LILY_VARIANTS[0], true),
+    lilyMotif(160, 25, 0.75, -20, LILY_VARIANTS[2], false),
+    lilyMotif(185, 110, 0.9, 42, LILY_VARIANTS[1], true),
+    lilyMotif(95, 115, 1, -12, LILY_VARIANTS[0], false),
+    lilyMotif(25, 165, 0.85, 65, LILY_VARIANTS[2], true),
+    lilyMotif(170, 190, 0.7, 15, LILY_VARIANTS[1], false),
+  ];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220">${GRADIENT_DEFS}${motifs.join("")}</svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+const FLORAL_BG = buildFloralTile();
+
+const DAY_NAMES = ["Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat", "Vasárnap"];
+const DAY_LETTERS = ["H", "K", "Sz", "Cs", "P", "Sz", "V"];
+const MONTH_NAMES = [
+  "Január", "Február", "Március", "Április", "Május", "Június",
+  "Július", "Augusztus", "Szeptember", "Október", "November", "December",
+];
+const MONTH_SHORT = [
+  "jan.", "febr.", "márc.", "ápr.", "máj.", "jún.",
+  "júl.", "aug.", "szept.", "okt.", "nov.", "dec.",
+];
+const RECUR_LABELS = { none: "Egyszeri", daily: "Naponta", every2: "Kétnaponta", weekly: "Hetente" };
+const RECUR_OPTIONS = [
+  { value: "none", label: "Nem ismétlődik" },
+  { value: "daily", label: "Naponta" },
+  { value: "every2", label: "Kétnaponta" },
+  { value: "weekly", label: "Hetente" },
+];
+
+const CATEGORY_OPTIONS = [
+  { value: "none", label: "Nincs kategória" },
+  { value: "egyetem", label: "Egyetem" },
+  { value: "munka", label: "Munka" },
+];
+const CATEGORY_STYLES = {
+  egyetem: { bg: "#DCDCF3", text: "#4B4A85", label: "Egyetem" },
+  munka: { bg: "#F3E2B8", text: "#7A5B15", label: "Munka" },
+};
+const CATEGORY_FILTERS = [
+  { value: "all", label: "Mind" },
+  { value: "egyetem", label: "Egyetem" },
+  { value: "munka", label: "Munka" },
+];
+
+function pad(n) { return n < 10 ? "0" + n : "" + n; }
+function dateKey(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+function getMonday(d) {
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  return addDays(d, diff);
+}
+function daysBetween(a, b) {
+  return Math.round(
+    (Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) -
+      Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) /
+      86400000
+  );
+}
+function isSameDay(a, b) { return dateKey(a) === dateKey(b); }
+function parseKey(k) {
+  const [y, m, d] = k.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function buildMonthMatrix(monthDate) {
+  const first = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const start = getMonday(first);
+  const cells = [];
+  for (let i = 0; i < 42; i++) cells.push(addDays(start, i));
+  return cells;
+}
+
+function taskOccursOn(task, d) {
+  const diff = daysBetween(task.anchorDate, d);
+  if (diff < 0) return false;
+  switch (task.recurrence) {
+    case "none": return diff === 0;
+    case "daily": return true;
+    case "every2": return diff % 2 === 0;
+    case "weekly": return diff % 7 === 0;
+    default: return false;
+  }
+}
+
+let uidCounter = 1;
+function nextId() { return uidCounter++; }
+
+const today = new Date();
+
+const SEED_TASKS = [
+  { id: nextId(), text: "Bevásárlás", anchorDate: new Date(today.getFullYear(), today.getMonth(), today.getDate()), recurrence: "none", category: "none", completions: {} },
+  { id: nextId(), text: "Reggeli jóga", anchorDate: addDays(today, -2), recurrence: "daily", category: "none", completions: {} },
+  { id: nextId(), text: "Beadandó véglegesítése", anchorDate: addDays(today, -1), recurrence: "every2", category: "egyetem", completions: {} },
+  { id: nextId(), text: "Heti csapatmegbeszélés", anchorDate: getMonday(today), recurrence: "weekly", category: "munka", completions: {} },
+];
+
+const SEED_GENERAL = [
+  { id: nextId(), text: "Szülinapi ajándék ötletek", category: "none", completed: false },
+  { id: nextId(), text: "Diplomamunka téma kiválasztása", category: "egyetem", completed: false },
+  { id: nextId(), text: "Önéletrajz frissítése", category: "munka", completed: true },
+];
+
+function WeeklyPlanner() {
+  const [weekStart, setWeekStart] = useState(getMonday(today));
+  const [tasks, setTasks] = useState([]);
+  const [generalTasks, setGeneralTasks] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [syncError, setSyncError] = useState(false);
+  const [generalText, setGeneralText] = useState("");
+  const [generalCategory, setGeneralCategory] = useState("none");
+  const [addingFor, setAddingFor] = useState(null);
+  const [newText, setNewText] = useState("");
+  const [newRecurrence, setNewRecurrence] = useState("none");
+  const [newCategory, setNewCategory] = useState("none");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [selectedDay, setSelectedDay] = useState(today);
+  const [windowWidth, setWindowWidth] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1200
+  );
+
+  useEffect(() => {
+    function onResize() { setWindowWidth(window.innerWidth); }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const isCompact = windowWidth < 720;
+
+  // Élő Firestore-szinkronizálás: bármelyik eszközön történik változás,
+  // az azonnal megjelenik a másikon is (onSnapshot valós idejű figyelő).
+  const isRemoteUpdate = React.useRef(false);
+
+  useEffect(() => {
+    const unsub = todoDocRef.onSnapshot(
+      (snap) => {
+        let loadedTasks = SEED_TASKS;
+        let loadedGeneral = SEED_GENERAL;
+        if (snap.exists) {
+          const data = snap.data();
+          if (data.tasks) {
+            loadedTasks = JSON.parse(data.tasks).map((t) => ({ ...t, anchorDate: parseKey(t.anchorDate) }));
+          }
+          if (data.generalTasks) loadedGeneral = JSON.parse(data.generalTasks);
+        }
+
+        loadedTasks = loadedTasks.filter((t) => {
+          if (t.recurrence !== "none") return true;
+          const isPast = daysBetween(t.anchorDate, today) > 0;
+          const wasCompleted = !!t.completions[dateKey(t.anchorDate)];
+          return !(isPast && wasCompleted);
+        });
+
+        isRemoteUpdate.current = true;
+        setTasks(loadedTasks);
+        setGeneralTasks(loadedGeneral);
+        setLoaded(true);
+        setSyncError(false);
+
+        if (!snap.exists) {
+          todoDocRef.set({
+            tasks: JSON.stringify(loadedTasks.map((t) => ({ ...t, anchorDate: dateKey(t.anchorDate) }))),
+            generalTasks: JSON.stringify(loadedGeneral),
+          });
+        }
+      },
+      () => {
+        setSyncError(true);
+        setLoaded(true);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Minden helyi változás után automatikusan mentés a felhőbe
+  useEffect(() => {
+    if (!loaded) return;
+    if (isRemoteUpdate.current) { isRemoteUpdate.current = false; return; }
+    const toSave = tasks.map((t) => ({ ...t, anchorDate: dateKey(t.anchorDate) }));
+    todoDocRef.set({ tasks: JSON.stringify(toSave) }, { merge: true }).catch(() => setSyncError(true));
+  }, [tasks, loaded]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    if (isRemoteUpdate.current) { return; }
+    todoDocRef.set({ generalTasks: JSON.stringify(generalTasks) }, { merge: true }).catch(() => setSyncError(true));
+  }, [generalTasks, loaded]);
+
+  if (!loaded) {
+    return (
+      <div
+        style={{
+          fontFamily: "'Work Sans', sans-serif",
+          background: COLORS.bg,
+          color: COLORS.textSoft,
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 14,
+          textAlign: "center",
+          padding: 20,
+        }}
+      >
+        {syncError
+          ? "Nem sikerült csatlakozni a szinkronizált tárolóhoz. Ellenőrizd az internetkapcsolatot, majd töltsd újra az oldalt."
+          : "Betöltés\u2026"}
+      </div>
+    );
+  }
+
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekEnd = weekDays[6];
+
+  const sameMonth = weekStart.getMonth() === weekEnd.getMonth();
+  const weekLabel = sameMonth
+    ? `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getDate()}\u2013${weekEnd.getDate()}.`
+    : `${MONTH_SHORT[weekStart.getMonth()]} ${weekStart.getDate()}. \u2013 ${MONTH_SHORT[weekEnd.getMonth()]} ${weekEnd.getDate()}.`;
+
+  const monthMatrix = buildMonthMatrix(weekStart);
+  const miniMonthLabel = `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getFullYear()}`;
+  const filteredGeneral = generalTasks.filter(
+    (g) => categoryFilter === "all" || g.category === categoryFilter
+  );
+
+  function goWeek(delta) {
+    setWeekStart((w) => addDays(w, delta * 7));
+    setSelectedDay((d) => addDays(d, delta * 7));
+  }
+  function goMonth(delta) {
+    const d = new Date(weekStart.getFullYear(), weekStart.getMonth() + delta, 1);
+    setWeekStart(getMonday(d));
+  }
+  function jumpToDate(d) {
+    setWeekStart(getMonday(d));
+    setSelectedDay(d);
+  }
+
+  function openAddForm(dKey) {
+    setAddingFor(dKey);
+    setNewText("");
+    setNewRecurrence("none");
+    setNewCategory("none");
+  }
+  function closeAddForm() { setAddingFor(null); }
+
+  function submitTask(day) {
+    const text = newText.trim();
+    if (!text) return;
+    setTasks((ts) => [
+      ...ts,
+      { id: nextId(), text, anchorDate: new Date(day.getFullYear(), day.getMonth(), day.getDate()), recurrence: newRecurrence, category: newCategory, completions: {} },
+    ]);
+    setAddingFor(null);
+    setNewText("");
+    setNewRecurrence("none");
+    setNewCategory("none");
+  }
+
+  function toggleCompletion(taskId, dKey) {
+    setTasks((ts) =>
+      ts.map((t) =>
+        t.id === taskId
+          ? { ...t, completions: { ...t.completions, [dKey]: !t.completions[dKey] } }
+          : t
+      )
+    );
+  }
+
+  function deleteTask(taskId) {
+    setTasks((ts) => ts.filter((t) => t.id !== taskId));
+  }
+
+  function addGeneralTask() {
+    const text = generalText.trim();
+    if (!text) return;
+    setGeneralTasks((gs) => [...gs, { id: nextId(), text, category: generalCategory, completed: false }]);
+    setGeneralText("");
+    setGeneralCategory("none");
+  }
+  function toggleGeneralTask(id) {
+    setGeneralTasks((gs) => gs.map((g) => (g.id === id ? { ...g, completed: !g.completed } : g)));
+  }
+  function deleteGeneralTask(id) {
+    setGeneralTasks((gs) => gs.filter((g) => g.id !== id));
+  }
+
+  return (
+    <div
+      style={{
+        fontFamily: "'Work Sans', sans-serif",
+        background: COLORS.bg,
+        color: COLORS.text,
+        minHeight: "100vh",
+        padding: isCompact ? "20px 16px" : "40px 32px",
+      }}
+    >
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,900&family=Work+Sans:wght@400;500;600&display=swap');
+        @keyframes softPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(139,0,45,0.7); border-color: #8B002D; }
+          50% { box-shadow: 0 0 0 10px rgba(139,0,45,0); border-color: #C23056; }
+        }
+        .pulse-task { animation: softPulse 1.7s ease-in-out infinite; }
+        .filter-chip:hover { background: ${COLORS.panel} !important; }
+        .day-scroll::-webkit-scrollbar { width: 5px; }
+        .day-scroll::-webkit-scrollbar-thumb { background: ${COLORS.border}; border-radius: 4px; }
+        input[type="text"]:focus, select:focus { outline: none; }
+        .mini-day:hover { background: ${COLORS.panel} !important; }
+      `}</style>
+
+      <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            flexWrap: "wrap",
+            gap: 24,
+            marginBottom: 32,
+          }}
+        >
+          <div>
+            <h1
+              style={{
+                fontFamily: "'Fraunces', serif",
+                fontWeight: 900,
+                fontSize: isCompact ? 40 : 74,
+                lineHeight: 1,
+                margin: 0,
+                color: COLORS.accentDark,
+              }}
+            >
+              Heti teendők
+            </h1>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 10 }}>
+              <button
+                onClick={() => goWeek(-1)}
+                aria-label="Előző hét"
+                style={{
+                  border: `1px solid ${COLORS.border}`,
+                  background: COLORS.panelSoft,
+                  borderRadius: 999,
+                  width: 32,
+                  height: 32,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  color: COLORS.accentDark,
+                }}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span style={{ fontSize: 16, fontWeight: 500, minWidth: 190, letterSpacing: 0.2 }}>
+                {weekLabel}
+              </span>
+              <button
+                onClick={() => goWeek(1)}
+                aria-label="Következő hét"
+                style={{
+                  border: `1px solid ${COLORS.border}`,
+                  background: COLORS.panelSoft,
+                  borderRadius: 999,
+                  width: 32,
+                  height: 32,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  color: COLORS.accentDark,
+                }}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+
+          {/* Mini month calendar */}
+          <div
+            style={{
+              background: COLORS.panelSoft,
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: 20,
+              padding: "14px 16px",
+              width: 232,
+              flexShrink: 0,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <button
+                onClick={() => goMonth(-1)}
+                aria-label="Előző hónap"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: COLORS.textSoft, padding: 2 }}
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span style={{ fontSize: 13, fontWeight: 500, color: COLORS.text }}>{miniMonthLabel}</span>
+              <button
+                onClick={() => goMonth(1)}
+                aria-label="Következő hónap"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: COLORS.textSoft, padding: 2 }}
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+              {DAY_LETTERS.map((l, i) => (
+                <div key={i} style={{ textAlign: "center", fontSize: 10, color: COLORS.textSoft, fontWeight: 500, padding: "2px 0" }}>
+                  {l}
+                </div>
+              ))}
+              {monthMatrix.map((d, i) => {
+                const inMonth = d.getMonth() === weekStart.getMonth();
+                const isToday = isSameDay(d, today);
+                const inCurrentWeek = weekDays.some((wd) => isSameDay(wd, d));
+                return (
+                  <button
+                    key={i}
+                    className="mini-day"
+                    onClick={() => jumpToDate(d)}
+                    style={{
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: 11,
+                      padding: "5px 0",
+                      borderRadius: 8,
+                      background: isToday ? COLORS.accent : inCurrentWeek ? COLORS.panel : "transparent",
+                      color: isToday ? "#fff" : inMonth ? COLORS.text : COLORS.textSoft,
+                      opacity: inMonth ? 1 : 0.45,
+                      fontWeight: isToday ? 600 : 400,
+                    }}
+                  >
+                    {d.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Category filter */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {CATEGORY_FILTERS.map((f) => {
+            const active = categoryFilter === f.value;
+            const style = CATEGORY_STYLES[f.value];
+            return (
+              <button
+                key={f.value}
+                className="filter-chip"
+                onClick={() => setCategoryFilter(f.value)}
+                style={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  padding: "6px 14px",
+                  borderRadius: 999,
+                  border: `1px solid ${active ? COLORS.accentDark : COLORS.border}`,
+                  background: active ? (style ? style.bg : COLORS.panel) : "transparent",
+                  color: active ? (style ? style.text : COLORS.accentDark) : COLORS.textSoft,
+                  cursor: "pointer",
+                }}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Week grid */}
+        {!isCompact && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(7, minmax(150px, 1fr))",
+            gap: 14,
+            overflowX: "auto",
+          }}
+        >
+          {weekDays.map((day) => {
+            const dKey = dateKey(day);
+            const isToday = isSameDay(day, today);
+            const dayTasks = tasks
+              .filter((t) => taskOccursOn(t, day))
+              .filter((t) => categoryFilter === "all" || t.category === categoryFilter);
+            const isAdding = addingFor === dKey;
+
+            return (
+              <div
+                key={dKey}
+                style={{
+                  background: COLORS.panelSoft,
+                  border: `1px solid ${isToday ? COLORS.accent : COLORS.border}`,
+                  borderRadius: 18,
+                  padding: "14px 12px",
+                  display: "flex",
+                  flexDirection: "column",
+                  minHeight: 260,
+                }}
+              >
+                <div style={{ marginBottom: 10 }}>
+                  <div
+                    style={{
+                      fontFamily: "'Fraunces', serif",
+                      fontWeight: 900,
+                      fontSize: 22,
+                      lineHeight: 1.1,
+                      color: isToday ? COLORS.accentDark : COLORS.text,
+                    }}
+                  >
+                    {DAY_NAMES[weekDays.indexOf(day)]}
+                  </div>
+                  <div style={{ fontSize: 12, color: COLORS.textSoft, marginTop: 2 }}>
+                    {pad(day.getDate())}.{pad(day.getMonth() + 1)}.
+                  </div>
+                </div>
+
+                <div className="day-scroll" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                  {dayTasks.length === 0 && !isAdding && (
+                    <div style={{ fontSize: 12, color: COLORS.textSoft, fontStyle: "italic", padding: "6px 2px" }}>
+                      Nincs teendő
+                    </div>
+                  )}
+                  {dayTasks.map((task) => {
+                    const done = !!task.completions[dKey];
+                    const shouldPulse = isToday && task.recurrence !== "none" && !done;
+                    return (
+                      <div
+                        key={task.id + dKey}
+                        className={`task-row${shouldPulse ? " pulse-task" : ""}`}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 5,
+                          background: "#fff",
+                          border: `1px solid ${COLORS.border}`,
+                          borderRadius: 10,
+                          padding: "6px 8px",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                          <button
+                            onClick={() => toggleCompletion(task.id, dKey)}
+                            aria-label={done ? "Kész" : "Nincs kész"}
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: 6,
+                              border: `1.5px solid ${COLORS.accent}`,
+                              background: done ? COLORS.panel : "transparent",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: "pointer",
+                              flexShrink: 0,
+                              marginTop: 0,
+                              padding: 0,
+                              fontSize: 12,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {done && "✅"}
+                          </button>
+                          <span
+                            style={{
+                              fontSize: 13,
+                              flex: "1 1 0%",
+                              minWidth: 0,
+                              wordBreak: "break-word",
+                              textDecoration: done ? "line-through" : "none",
+                              color: done ? COLORS.textSoft : COLORS.text,
+                            }}
+                          >
+                            {task.text}
+                          </span>
+                          <button
+                            onClick={() => deleteTask(task.id)}
+                            aria-label="Törlés"
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                              color: COLORS.textSoft,
+                              opacity: 1,
+                              flexShrink: 0,
+                              padding: 0,
+                              marginTop: 2,
+                            }}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                        {(task.category !== "none" || task.recurrence !== "none") && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 24 }}>
+                            {task.category !== "none" && CATEGORY_STYLES[task.category] && (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                  padding: "2px 7px",
+                                  borderRadius: 999,
+                                  background: CATEGORY_STYLES[task.category].bg,
+                                  color: CATEGORY_STYLES[task.category].text,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {CATEGORY_STYLES[task.category].label}
+                              </span>
+                            )}
+                            {task.recurrence !== "none" && (
+                              <span title={RECUR_LABELS[task.recurrence]} style={{ color: COLORS.textSoft, display: "flex" }}>
+                                <RefreshCw size={11} />
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {isAdding ? (
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={newText}
+                      onChange={(e) => setNewText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") submitTask(day);
+                        if (e.key === "Escape") closeAddForm();
+                      }}
+                      placeholder="Új teendő"
+                      style={{
+                        fontSize: 13,
+                        padding: "6px 8px",
+                        borderRadius: 8,
+                        border: `1px solid ${COLORS.border}`,
+                        background: "#fff",
+                        fontFamily: "'Work Sans', sans-serif",
+                      }}
+                    />
+                    <select
+                      value={newRecurrence}
+                      onChange={(e) => setNewRecurrence(e.target.value)}
+                      style={{
+                        fontSize: 12,
+                        padding: "5px 6px",
+                        borderRadius: 8,
+                        border: `1px solid ${COLORS.border}`,
+                        background: "#fff",
+                        fontFamily: "'Work Sans', sans-serif",
+                        color: COLORS.text,
+                      }}
+                    >
+                      {RECUR_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={newCategory}
+                      onChange={(e) => setNewCategory(e.target.value)}
+                      style={{
+                        fontSize: 12,
+                        padding: "5px 6px",
+                        borderRadius: 8,
+                        border: `1px solid ${COLORS.border}`,
+                        background: "#fff",
+                        fontFamily: "'Work Sans', sans-serif",
+                        color: COLORS.text,
+                      }}
+                    >
+                      {CATEGORY_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        onClick={() => submitTask(day)}
+                        style={{
+                          flex: 1,
+                          fontSize: 12,
+                          padding: "6px 0",
+                          borderRadius: 8,
+                          border: "none",
+                          background: COLORS.accent,
+                          color: "#fff",
+                          cursor: "pointer",
+                          fontWeight: 500,
+                        }}
+                      >
+                        Hozzáad
+                      </button>
+                      <button
+                        onClick={closeAddForm}
+                        style={{
+                          fontSize: 12,
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: `1px solid ${COLORS.border}`,
+                          background: "transparent",
+                          color: COLORS.textSoft,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Mégse
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => openAddForm(dKey)}
+                    style={{
+                      marginTop: 8,
+                      fontSize: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      border: "none",
+                      background: "transparent",
+                      color: COLORS.accentDark,
+                      cursor: "pointer",
+                      padding: "4px 2px",
+                      fontWeight: 500,
+                    }}
+                  >
+                    <Plus size={13} /> Új feladat
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        )}
+
+        {/* Compact view: day switcher strip + single day card, for small windows */}
+        {isCompact && (() => {
+          const day = selectedDay;
+          const dKey = dateKey(day);
+          const isToday = isSameDay(day, today);
+          const dayTasks = tasks
+            .filter((t) => taskOccursOn(t, day))
+            .filter((t) => categoryFilter === "all" || t.category === categoryFilter);
+          const isAdding = addingFor === dKey;
+
+          return (
+            <div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto" }}>
+                {weekDays.map((d, i) => {
+                  const sel = isSameDay(d, selectedDay);
+                  const todayCol = isSameDay(d, today);
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => setSelectedDay(d)}
+                      style={{
+                        flex: "1 0 auto",
+                        minWidth: 44,
+                        border: `1px solid ${sel ? COLORS.accentDark : COLORS.border}`,
+                        borderRadius: 12,
+                        background: sel ? COLORS.accent : COLORS.panelSoft,
+                        color: sel ? "#fff" : todayCol ? COLORS.accentDark : COLORS.text,
+                        cursor: "pointer",
+                        padding: "6px 4px",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        gap: 2,
+                      }}
+                    >
+                      <span style={{ fontSize: 10, fontWeight: 600 }}>{DAY_LETTERS[i]}</span>
+                      <span style={{ fontSize: 13, fontWeight: sel || todayCol ? 700 : 400 }}>{d.getDate()}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div
+                style={{
+                  background: COLORS.panelSoft,
+                  border: `1px solid ${isToday ? COLORS.accent : COLORS.border}`,
+                  borderRadius: 18,
+                  padding: "16px 14px",
+                }}
+              >
+                <div style={{ marginBottom: 10 }}>
+                  <div
+                    style={{
+                      fontFamily: "'Fraunces', serif",
+                      fontWeight: 900,
+                      fontSize: 26,
+                      lineHeight: 1.1,
+                      color: isToday ? COLORS.accentDark : COLORS.text,
+                    }}
+                  >
+                    {DAY_NAMES[weekDays.findIndex((d) => isSameDay(d, day))]}
+                    {isToday ? " · ma" : ""}
+                  </div>
+                  <div style={{ fontSize: 12, color: COLORS.textSoft, marginTop: 2 }}>
+                    {pad(day.getDate())}.{pad(day.getMonth() + 1)}.
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {dayTasks.length === 0 && !isAdding && (
+                    <div style={{ fontSize: 12, color: COLORS.textSoft, fontStyle: "italic", padding: "6px 2px" }}>
+                      Nincs teendő
+                    </div>
+                  )}
+                  {dayTasks.map((task) => {
+                    const done = !!task.completions[dKey];
+                    const shouldPulse = isToday && task.recurrence !== "none" && !done;
+                    return (
+                      <div
+                        key={task.id + dKey}
+                        className={`task-row${shouldPulse ? " pulse-task" : ""}`}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 5,
+                          background: "#fff",
+                          border: `1px solid ${COLORS.border}`,
+                          borderRadius: 10,
+                          padding: "6px 8px",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                          <button
+                            onClick={() => toggleCompletion(task.id, dKey)}
+                            aria-label={done ? "Kész" : "Nincs kész"}
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: 6,
+                              border: `1.5px solid ${COLORS.accent}`,
+                              background: done ? COLORS.panel : "transparent",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: "pointer",
+                              flexShrink: 0,
+                              padding: 0,
+                              fontSize: 12,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {done && "✅"}
+                          </button>
+                          <span
+                            style={{
+                              fontSize: 13,
+                              flex: "1 1 0%",
+                              minWidth: 0,
+                              wordBreak: "break-word",
+                              textDecoration: done ? "line-through" : "none",
+                              color: done ? COLORS.textSoft : COLORS.text,
+                            }}
+                          >
+                            {task.text}
+                          </span>
+                          <button
+                            onClick={() => deleteTask(task.id)}
+                            aria-label="Törlés"
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                              color: COLORS.textSoft,
+                              opacity: 1,
+                              flexShrink: 0,
+                              padding: 0,
+                              marginTop: 2,
+                            }}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                        {(task.category !== "none" || task.recurrence !== "none") && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 24 }}>
+                            {task.category !== "none" && CATEGORY_STYLES[task.category] && (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                  padding: "2px 7px",
+                                  borderRadius: 999,
+                                  background: CATEGORY_STYLES[task.category].bg,
+                                  color: CATEGORY_STYLES[task.category].text,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {CATEGORY_STYLES[task.category].label}
+                              </span>
+                            )}
+                            {task.recurrence !== "none" && (
+                              <span title={RECUR_LABELS[task.recurrence]} style={{ color: COLORS.textSoft, display: "flex" }}>
+                                <RefreshCw size={11} />
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {isAdding ? (
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={newText}
+                      onChange={(e) => setNewText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") submitTask(day);
+                        if (e.key === "Escape") closeAddForm();
+                      }}
+                      placeholder="Új teendő"
+                      style={{
+                        fontSize: 13,
+                        padding: "6px 8px",
+                        borderRadius: 8,
+                        border: `1px solid ${COLORS.border}`,
+                        background: "#fff",
+                        fontFamily: "'Work Sans', sans-serif",
+                      }}
+                    />
+                    <select
+                      value={newRecurrence}
+                      onChange={(e) => setNewRecurrence(e.target.value)}
+                      style={{
+                        fontSize: 12,
+                        padding: "5px 6px",
+                        borderRadius: 8,
+                        border: `1px solid ${COLORS.border}`,
+                        background: "#fff",
+                        fontFamily: "'Work Sans', sans-serif",
+                        color: COLORS.text,
+                      }}
+                    >
+                      {RECUR_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={newCategory}
+                      onChange={(e) => setNewCategory(e.target.value)}
+                      style={{
+                        fontSize: 12,
+                        padding: "5px 6px",
+                        borderRadius: 8,
+                        border: `1px solid ${COLORS.border}`,
+                        background: "#fff",
+                        fontFamily: "'Work Sans', sans-serif",
+                        color: COLORS.text,
+                      }}
+                    >
+                      {CATEGORY_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        onClick={() => submitTask(day)}
+                        style={{
+                          flex: 1,
+                          fontSize: 12,
+                          padding: "6px 0",
+                          borderRadius: 8,
+                          border: "none",
+                          background: COLORS.accent,
+                          color: "#fff",
+                          cursor: "pointer",
+                          fontWeight: 500,
+                        }}
+                      >
+                        Hozzáad
+                      </button>
+                      <button
+                        onClick={closeAddForm}
+                        style={{
+                          fontSize: 12,
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: `1px solid ${COLORS.border}`,
+                          background: "transparent",
+                          color: COLORS.textSoft,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Mégse
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => openAddForm(dKey)}
+                    style={{
+                      marginTop: 8,
+                      fontSize: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      border: "none",
+                      background: "transparent",
+                      color: COLORS.accentDark,
+                      cursor: "pointer",
+                      padding: "4px 2px",
+                      fontWeight: 500,
+                    }}
+                  >
+                    <Plus size={13} /> Új feladat
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* General to-do list, not tied to a specific day */}
+        <div
+          style={{
+            marginTop: 28,
+            background: COLORS.panelSoft,
+            border: `1px solid ${COLORS.border}`,
+            borderRadius: 18,
+            padding: "18px 22px",
+          }}
+        >
+          <h2
+            style={{
+              fontFamily: "'Fraunces', serif",
+              fontWeight: 900,
+              fontSize: 36,
+              margin: "0 0 12px",
+              color: COLORS.accentDark,
+              lineHeight: 1.1,
+            }}
+          >
+            TO-DO
+          </h2>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(min(260px, 100%), 1fr))",
+              gap: 8,
+              marginBottom: 14,
+            }}
+          >
+            {filteredGeneral.length === 0 && (
+              <div style={{ fontSize: 12, color: COLORS.textSoft, fontStyle: "italic" }}>
+                Nincs ilyen kategóriájú teendő
+              </div>
+            )}
+            {filteredGeneral.map((g) => (
+              <div
+                key={g.id}
+                className="task-row"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 5,
+                  background: "#fff",
+                  border: `1px solid ${COLORS.border}`,
+                  borderRadius: 10,
+                  padding: "7px 10px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <button
+                    onClick={() => toggleGeneralTask(g.id)}
+                    aria-label={g.completed ? "Kész" : "Nincs kész"}
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: 6,
+                      border: `1.5px solid ${COLORS.accent}`,
+                      background: g.completed ? COLORS.panel : "transparent",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      marginTop: 0,
+                      padding: 0,
+                      fontSize: 12,
+                      lineHeight: 1,
+                    }}
+                  >
+                    {g.completed && "✅"}
+                  </button>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      flex: "1 1 0%",
+                      minWidth: 0,
+                      wordBreak: "break-word",
+                      textDecoration: g.completed ? "line-through" : "none",
+                      color: g.completed ? COLORS.textSoft : COLORS.text,
+                    }}
+                  >
+                    {g.text}
+                  </span>
+                  <button
+                    onClick={() => deleteGeneralTask(g.id)}
+                    aria-label="Törlés"
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      color: COLORS.textSoft,
+                      opacity: 1,
+                      flexShrink: 0,
+                      padding: 0,
+                      marginTop: 2,
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+                {g.category !== "none" && CATEGORY_STYLES[g.category] && (
+                  <div style={{ display: "flex", paddingLeft: 24 }}>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 500,
+                        padding: "2px 7px",
+                        borderRadius: 999,
+                        background: CATEGORY_STYLES[g.category].bg,
+                        color: CATEGORY_STYLES[g.category].text,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {CATEGORY_STYLES[g.category].label}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input
+              type="text"
+              value={generalText}
+              onChange={(e) => setGeneralText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") addGeneralTask(); }}
+              placeholder="Új általános teendő"
+              style={{
+                fontSize: 13,
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: `1px solid ${COLORS.border}`,
+                background: "#fff",
+                fontFamily: "'Work Sans', sans-serif",
+                flex: "1 1 200px",
+              }}
+            />
+            <select
+              value={generalCategory}
+              onChange={(e) => setGeneralCategory(e.target.value)}
+              style={{
+                fontSize: 13,
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: `1px solid ${COLORS.border}`,
+                background: "#fff",
+                fontFamily: "'Work Sans', sans-serif",
+                color: COLORS.text,
+              }}
+            >
+              {CATEGORY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={addGeneralTask}
+              style={{
+                fontSize: 13,
+                padding: "8px 16px",
+                borderRadius: 8,
+                border: "none",
+                background: COLORS.accent,
+                color: "#fff",
+                cursor: "pointer",
+                fontWeight: 500,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <Plus size={14} /> Hozzáad
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const rootEl = document.getElementById("root");
+ReactDOM.createRoot(rootEl).render(<WeeklyPlanner />);
+</script>
+</body>
+</html>
