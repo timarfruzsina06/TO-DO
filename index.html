@@ -3,8 +3,6 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="apple-touch-icon" href="apple-touch-icon.png" />
-<link rel="icon" href="apple-touch-icon.png" />
 <title>Heti teendők</title>
 </head>
 <body style="margin:0;">
@@ -205,7 +203,8 @@ function taskOccursOn(task, d) {
 let uidCounter = 1;
 function nextId() { return uidCounter++; }
 
-const today = new Date();
+function getToday() { return new Date(); }
+const today = getToday(); // csak a kezdeti minta-adatokhoz (modul-szintű)
 
 const SEED_TASKS = [
   { id: nextId(), text: "Bevásárlás", anchorDate: new Date(today.getFullYear(), today.getMonth(), today.getDate()), recurrence: "none", category: "none", completions: {} },
@@ -221,11 +220,10 @@ const SEED_GENERAL = [
 ];
 
 function WeeklyPlanner() {
-  const [weekStart, setWeekStart] = useState(getMonday(today));
+  const [weekStart, setWeekStart] = useState(getMonday(getToday()));
   const [tasks, setTasks] = useState([]);
   const [generalTasks, setGeneralTasks] = useState([]);
   const [loaded, setLoaded] = useState(false);
-  const [syncError, setSyncError] = useState(false);
   const [generalText, setGeneralText] = useState("");
   const [generalCategory, setGeneralCategory] = useState("none");
   const [addingFor, setAddingFor] = useState(null);
@@ -233,7 +231,7 @@ function WeeklyPlanner() {
   const [newRecurrence, setNewRecurrence] = useState("none");
   const [newCategory, setNewCategory] = useState("none");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [selectedDay, setSelectedDay] = useState(today);
+  const [selectedDay, setSelectedDay] = useState(getToday());
   const [windowWidth, setWindowWidth] = useState(
     typeof window !== "undefined" ? window.innerWidth : 1200
   );
@@ -246,63 +244,59 @@ function WeeklyPlanner() {
 
   const isCompact = windowWidth < 720;
 
-  // Élő Firestore-szinkronizálás: bármelyik eszközön történik változás,
-  // az azonnal megjelenik a másikon is (onSnapshot valós idejű figyelő).
-  const isRemoteUpdate = React.useRef(false);
-
+  // Percenkénti "ébresztő", hogy ha éjfél után is nyitva marad az app,
+  // a mai nap kiemelése és a lejárt feladatok tisztítása magától frissüljön.
+  const [, forceTick] = useState(0);
   useEffect(() => {
-    const unsub = todoDocRef.onSnapshot(
-      (snap) => {
-        let loadedTasks = SEED_TASKS;
-        let loadedGeneral = SEED_GENERAL;
-        if (snap.exists) {
-          const data = snap.data();
-          if (data.tasks) {
-            loadedTasks = JSON.parse(data.tasks).map((t) => ({ ...t, anchorDate: parseKey(t.anchorDate) }));
-          }
-          if (data.generalTasks) loadedGeneral = JSON.parse(data.generalTasks);
+    const id = setInterval(() => forceTick((t) => t + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Mentett adatok betöltése (vagy minta-adatok, ha még nincs mentés), majd
+  // a lejárt, kész, nem ismétlődő feladatok eltávolítása.
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      let loadedTasks = SEED_TASKS;
+      let loadedGeneral = SEED_GENERAL;
+      try {
+        const res = await window.storage.get("tasks", false);
+        if (res && res.value) {
+          loadedTasks = JSON.parse(res.value).map((t) => ({ ...t, anchorDate: parseKey(t.anchorDate) }));
         }
+      } catch (e) { /* még nincs mentett adat */ }
+      try {
+        const res2 = await window.storage.get("generalTasks", false);
+        if (res2 && res2.value) loadedGeneral = JSON.parse(res2.value);
+      } catch (e) { /* még nincs mentett adat */ }
 
-        loadedTasks = loadedTasks.filter((t) => {
-          if (t.recurrence !== "none") return true;
-          const isPast = daysBetween(t.anchorDate, today) > 0;
-          const wasCompleted = !!t.completions[dateKey(t.anchorDate)];
-          return !(isPast && wasCompleted);
-        });
+      loadedTasks = loadedTasks.filter((t) => {
+        if (t.recurrence !== "none") return true;
+        const isPast = daysBetween(t.anchorDate, getToday()) > 0;
+        const wasCompleted = !!t.completions[dateKey(t.anchorDate)];
+        return !(isPast && wasCompleted);
+      });
 
-        isRemoteUpdate.current = true;
+      if (!cancelled) {
         setTasks(loadedTasks);
         setGeneralTasks(loadedGeneral);
         setLoaded(true);
-        setSyncError(false);
-
-        if (!snap.exists) {
-          todoDocRef.set({
-            tasks: JSON.stringify(loadedTasks.map((t) => ({ ...t, anchorDate: dateKey(t.anchorDate) }))),
-            generalTasks: JSON.stringify(loadedGeneral),
-          });
-        }
-      },
-      () => {
-        setSyncError(true);
-        setLoaded(true);
       }
-    );
-    return () => unsub();
+    }
+    load();
+    return () => { cancelled = true; };
   }, []);
 
-  // Minden helyi változás után automatikusan mentés a felhőbe
+  // Minden változás után automatikusan mentés
   useEffect(() => {
     if (!loaded) return;
-    if (isRemoteUpdate.current) { isRemoteUpdate.current = false; return; }
     const toSave = tasks.map((t) => ({ ...t, anchorDate: dateKey(t.anchorDate) }));
-    todoDocRef.set({ tasks: JSON.stringify(toSave) }, { merge: true }).catch(() => setSyncError(true));
+    window.storage.set("tasks", JSON.stringify(toSave), false).catch(() => {});
   }, [tasks, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
-    if (isRemoteUpdate.current) { return; }
-    todoDocRef.set({ generalTasks: JSON.stringify(generalTasks) }, { merge: true }).catch(() => setSyncError(true));
+    window.storage.set("generalTasks", JSON.stringify(generalTasks), false).catch(() => {});
   }, [generalTasks, loaded]);
 
   if (!loaded) {
@@ -317,13 +311,9 @@ function WeeklyPlanner() {
           alignItems: "center",
           justifyContent: "center",
           fontSize: 14,
-          textAlign: "center",
-          padding: 20,
         }}
       >
-        {syncError
-          ? "Nem sikerült csatlakozni a szinkronizált tárolóhoz. Ellenőrizd az internetkapcsolatot, majd töltsd újra az oldalt."
-          : "Betöltés\u2026"}
+        Betöltés…
       </div>
     );
   }
@@ -532,7 +522,7 @@ function WeeklyPlanner() {
               ))}
               {monthMatrix.map((d, i) => {
                 const inMonth = d.getMonth() === weekStart.getMonth();
-                const isToday = isSameDay(d, today);
+                const isToday = isSameDay(d, getToday());
                 const inCurrentWeek = weekDays.some((wd) => isSameDay(wd, d));
                 return (
                   <button
@@ -598,7 +588,7 @@ function WeeklyPlanner() {
         >
           {weekDays.map((day) => {
             const dKey = dateKey(day);
-            const isToday = isSameDay(day, today);
+            const isToday = isSameDay(day, getToday());
             const dayTasks = tasks
               .filter((t) => taskOccursOn(t, day))
               .filter((t) => categoryFilter === "all" || t.category === categoryFilter);
@@ -856,7 +846,7 @@ function WeeklyPlanner() {
         {isCompact && (() => {
           const day = selectedDay;
           const dKey = dateKey(day);
-          const isToday = isSameDay(day, today);
+          const isToday = isSameDay(day, getToday());
           const dayTasks = tasks
             .filter((t) => taskOccursOn(t, day))
             .filter((t) => categoryFilter === "all" || t.category === categoryFilter);
@@ -867,7 +857,7 @@ function WeeklyPlanner() {
               <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto" }}>
                 {weekDays.map((d, i) => {
                   const sel = isSameDay(d, selectedDay);
-                  const todayCol = isSameDay(d, today);
+                  const todayCol = isSameDay(d, getToday());
                   return (
                     <button
                       key={i}
