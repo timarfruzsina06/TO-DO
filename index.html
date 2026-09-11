@@ -1168,7 +1168,7 @@ function WeeklyPlanner() {
     );
   }
 
-  function renderEventBlock(task, dKey, isTodayCol, startMin, endMin) {
+  function renderEventBlock(task, dKey, isTodayCol, startMin, endMin, forceCompact) {
     const done = !!task.completions[dKey];
     const shouldPulse = isTodayCol && task.recurrence !== "none" && !done;
     const catStyle = task.category !== "none" && CATEGORY_STYLES[task.category] ? CATEGORY_STYLES[task.category] : null;
@@ -1176,7 +1176,7 @@ function WeeklyPlanner() {
     const textColor = task.color ? COLORS.text : (catStyle ? catStyle.text : COLORS.text);
     const borderLeftColor = task.color ? darkenHex(task.color, 30) : COLORS.accent;
     const heightPx = Math.max(20, ((endMin - startMin) / 60) * HOUR_HEIGHT);
-    const isTiny = heightPx < 34;
+    const isTiny = heightPx < 34 || forceCompact;
     const topRowH = 16;
     const textAreaH = Math.max(13, heightPx - topRowH - 6);
     const maxLines = Math.max(1, Math.floor(textAreaH / 13));
@@ -1486,7 +1486,7 @@ function WeeklyPlanner() {
                       width: `calc(${widthPct}% - 3px)`,
                     }}
                   >
-                    {renderEventBlock(ev.task, dKey, isTodayCol, ev.start, ev.end)}
+                    {renderEventBlock(ev.task, dKey, isTodayCol, ev.start, ev.end, ev.totalCols > 1)}
                   </div>
                 );
               })}
