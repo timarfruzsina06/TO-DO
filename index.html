@@ -427,6 +427,51 @@ function WeeklyPlanner() {
     });
   }
 
+  const HOUR_OPTIONS_FULL = Array.from({ length: 24 }, (_, i) => pad(i));
+  const MINUTE_OPTIONS_5 = Array.from({ length: 12 }, (_, i) => pad(i * 5));
+
+  function TimeSelect({ value, onChange }) {
+    const parts = value ? value.split(":") : ["", ""];
+    const h = parts[0] || "";
+    const m = parts[1] || "";
+    const selectStyle = {
+      fontSize: 12,
+      padding: "5px 4px",
+      borderRadius: 8,
+      border: `1px solid ${COLORS.border}`,
+      background: "#fff",
+      fontFamily: "'Work Sans', sans-serif",
+      color: COLORS.text,
+      flex: 1,
+      minWidth: 0,
+    };
+    return (
+      <div style={{ display: "flex", gap: 3, alignItems: "center", flex: 1 }}>
+        <select
+          value={h}
+          onChange={(e) => onChange(e.target.value ? `${e.target.value}:${m || "00"}` : "")}
+          style={selectStyle}
+        >
+          <option value="">--</option>
+          {HOUR_OPTIONS_FULL.map((hh) => (
+            <option key={hh} value={hh}>{hh}</option>
+          ))}
+        </select>
+        <span style={{ color: COLORS.textSoft }}>:</span>
+        <select
+          value={m}
+          onChange={(e) => onChange(`${h || "00"}:${e.target.value}`)}
+          style={selectStyle}
+        >
+          <option value="">--</option>
+          {MINUTE_OPTIONS_5.map((mm) => (
+            <option key={mm} value={mm}>{mm}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
   function ColorSwatchRow({ value, onChange, small }) {
     return (
       <div style={{ display: "flex", gap: small ? 4 : 6, flexWrap: "wrap" }}>
@@ -510,20 +555,8 @@ function WeeklyPlanner() {
         )}
         {showTimeAndRecurrence && (
           <div style={{ display: "flex", gap: 6 }}>
-            <input
-              type="time"
-              value={editStartTime}
-              onChange={(e) => setEditStartTime(e.target.value)}
-              title="Kezdés"
-              style={{ flex: 1, fontSize: 11, padding: "4px 5px", borderRadius: 7, border: `1px solid ${COLORS.border}`, background: "#fff", fontFamily: "'Work Sans', sans-serif" }}
-            />
-            <input
-              type="time"
-              value={editEndTime}
-              onChange={(e) => setEditEndTime(e.target.value)}
-              title="Vég"
-              style={{ flex: 1, fontSize: 11, padding: "4px 5px", borderRadius: 7, border: `1px solid ${COLORS.border}`, background: "#fff", fontFamily: "'Work Sans', sans-serif" }}
-            />
+            <TimeSelect value={editStartTime} onChange={setEditStartTime} />
+            <TimeSelect value={editEndTime} onChange={setEditEndTime} />
           </div>
         )}
         <select
@@ -1930,38 +1963,8 @@ function WeeklyPlanner() {
                       Időpont (nem kötelező – hagyd üresen, ha nincs konkrét óra)
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <input
-                        type="time"
-                        value={newStartTime}
-                        onChange={(e) => setNewStartTime(e.target.value)}
-                        title="Kezdés (opcionális)"
-                        style={{
-                          flex: 1,
-                          fontSize: 12,
-                          padding: "5px 6px",
-                          borderRadius: 8,
-                          border: `1px solid ${COLORS.border}`,
-                          background: "#fff",
-                          fontFamily: "'Work Sans', sans-serif",
-                          color: COLORS.text,
-                        }}
-                      />
-                      <input
-                        type="time"
-                        value={newEndTime}
-                        onChange={(e) => setNewEndTime(e.target.value)}
-                        title="Vég (opcionális)"
-                        style={{
-                          flex: 1,
-                          fontSize: 12,
-                          padding: "5px 6px",
-                          borderRadius: 8,
-                          border: `1px solid ${COLORS.border}`,
-                          background: "#fff",
-                          fontFamily: "'Work Sans', sans-serif",
-                          color: COLORS.text,
-                        }}
-                      />
+                      <TimeSelect value={newStartTime} onChange={setNewStartTime} />
+                      <TimeSelect value={newEndTime} onChange={setNewEndTime} />
                     </div>
                     <select
                       value={newRecurrence}
@@ -2154,38 +2157,8 @@ function WeeklyPlanner() {
                       Időpont (nem kötelező – hagyd üresen, ha nincs konkrét óra)
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <input
-                        type="time"
-                        value={newStartTime}
-                        onChange={(e) => setNewStartTime(e.target.value)}
-                        title="Kezdés (opcionális)"
-                        style={{
-                          flex: 1,
-                          fontSize: 12,
-                          padding: "5px 6px",
-                          borderRadius: 8,
-                          border: `1px solid ${COLORS.border}`,
-                          background: "#fff",
-                          fontFamily: "'Work Sans', sans-serif",
-                          color: COLORS.text,
-                        }}
-                      />
-                      <input
-                        type="time"
-                        value={newEndTime}
-                        onChange={(e) => setNewEndTime(e.target.value)}
-                        title="Vég (opcionális)"
-                        style={{
-                          flex: 1,
-                          fontSize: 12,
-                          padding: "5px 6px",
-                          borderRadius: 8,
-                          border: `1px solid ${COLORS.border}`,
-                          background: "#fff",
-                          fontFamily: "'Work Sans', sans-serif",
-                          color: COLORS.text,
-                        }}
-                      />
+                      <TimeSelect value={newStartTime} onChange={setNewStartTime} />
+                      <TimeSelect value={newEndTime} onChange={setNewEndTime} />
                     </div>
                     <select
                       value={newRecurrence}
