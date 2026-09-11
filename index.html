@@ -11,6 +11,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.min.js"></script>
+<script>
+  if (typeof pdfjsLib !== "undefined") {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/legacy/build/pdf.worker.min.js";
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -128,6 +136,7 @@ function buildFloralTile() {
 const FLORAL_BG = buildFloralTile();
 
 const DAY_NAMES = ["Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat", "Vasárnap"];
+const HOURS = Array.from({ length: 17 }, (_, i) => i + 6); // 6..22
 const DAY_LETTERS = ["H", "K", "Sz", "Cs", "P", "Sz", "V"];
 const MONTH_NAMES = [
   "Január", "Február", "Március", "Április", "Május", "Június",
@@ -162,6 +171,50 @@ const CATEGORY_FILTERS = [
 
 function pad(n) { return n < 10 ? "0" + n : "" + n; }
 function dateKey(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+
+const HU_MONTHS = {
+  "január": 1, "február": 2, "március": 3, "április": 4, "május": 5, "június": 6,
+  "július": 7, "augusztus": 8, "szeptember": 9, "október": 10, "november": 11, "december": 12,
+};
+// Rugalmas dátum-idő felismerés: "2026. szeptember 7. 10:00" formátumhoz,
+// de elfogad ISO-szerű vagy simán "2026-09-07 10:00" jellegű bejegyzéseket is.
+function parseFlexibleDateTime(raw) {
+  if (raw == null) return null;
+  if (raw instanceof Date && !isNaN(raw)) return raw;
+  const s = String(raw).trim();
+  let m = s.match(/(\d{4})\.\s*([a-záéíóöőúüű]+)\s*(\d{1,2})\.?\s*(\d{1,2}):(\d{2})/i);
+  if (m) {
+    const month = HU_MONTHS[m[2].toLowerCase()];
+    if (month) return new Date(Number(m[1]), month - 1, Number(m[3]), Number(m[4]), Number(m[5]));
+  }
+  m = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]));
+  m = s.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})\.?\s*(\d{1,2}):(\d{2})/);
+  if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), Number(m[4]), Number(m[5]));
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+// Oszlop-felismerés különböző elnevezésekhez (magyar Neptun-export és általánosabb változatok)
+const COLUMN_ALIASES = {
+  start: ["kezdés", "kezdet", "start", "dátum"],
+  end: ["befejezés", "vég", "end"],
+  name: ["név", "tantárgy", "cím", "title", "subject", "óra", "tanóra", "esemény"],
+};
+function findColumnIndex(headerRow, aliases) {
+  for (let i = 0; i < headerRow.length; i++) {
+    const cell = String(headerRow[i] || "").toLowerCase().trim();
+    if (aliases.some((a) => cell.includes(a))) return i;
+  }
+  return -1;
+}
+function findHeaderRow(rows) {
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    const idx = findColumnIndex(rows[i] || [], COLUMN_ALIASES.start);
+    if (idx !== -1) return i;
+  }
+  return -1;
+}
 function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
 function getMonday(d) {
   const day = d.getDay();
@@ -224,14 +277,206 @@ function WeeklyPlanner() {
   const [tasks, setTasks] = useState([]);
   const [generalTasks, setGeneralTasks] = useState([]);
   const [loaded, setLoaded] = useState(false);
-  const [syncError, setSyncError] = useState(false);
   const [generalText, setGeneralText] = useState("");
   const [generalCategory, setGeneralCategory] = useState("none");
   const [addingFor, setAddingFor] = useState(null);
   const [newText, setNewText] = useState("");
   const [newRecurrence, setNewRecurrence] = useState("none");
   const [newCategory, setNewCategory] = useState("none");
+  const [newStartTime, setNewStartTime] = useState("");
+  const [newEndTime, setNewEndTime] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [importMessage, setImportMessage] = useState(null);
+  const [expandedNotes, setExpandedNotes] = useState(() => new Set());
+  const fileInputRef = React.useRef(null);
+
+  function toggleNoteOpen(id) {
+    setExpandedNotes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function handleImportClick() {
+    if (fileInputRef.current) fileInputRef.current.click();
+  }
+
+  function finalizeImport(imported, sourceLabel, extraNote) {
+    if (!imported || imported.length === 0) {
+      setImportMessage({
+        type: "error",
+        text: `Nem találtam felismerhető eseményt ebben a ${sourceLabel} fájlban.${extraNote ? " " + extraNote : ""}`,
+      });
+      return;
+    }
+    setTasks((ts) => [...ts, ...imported]);
+    setImportMessage({
+      type: "success",
+      text: `${imported.length} esemény importálva (${sourceLabel}).${extraNote ? " " + extraNote : ""}`,
+    });
+  }
+
+  // Szabad szöveges (PDF-ből kinyert, vagy OCR-ezett) tartalom sorról-sorra
+  // átvizsgálása: minden sorban dátum+idő mintát keres, a maradék szöveget
+  // névnek tekinti. Ez becslés jellegű, ezért kép/PDF esetén érdemes
+  // utólag ellenőrizni az eredményt.
+  function parseGenericScheduleText(text) {
+    const dtPattern = /(\d{4}\.\s*[a-záéíóöőúüű]+\s*\d{1,2}\.?\s*\d{1,2}:\d{2}|\d{4}-\d{1,2}-\d{1,2}[ T]\d{1,2}:\d{2}|\d{1,2}\.\d{1,2}\.\d{4}\.?\s*\d{1,2}:\d{2})/gi;
+    const lines = text.split(/\r?\n/);
+    const imported = [];
+    for (const line of lines) {
+      const matches = line.match(dtPattern);
+      if (!matches || matches.length === 0) continue;
+      const startDate = parseFlexibleDateTime(matches[0]);
+      if (!startDate) continue;
+      const endDate = matches[1] ? parseFlexibleDateTime(matches[1]) : null;
+      let rest = line;
+      matches.forEach((m) => { rest = rest.replace(m, " "); });
+      rest = rest.replace(/[|;]+/g, " ").replace(/\s{2,}/g, " ").trim();
+      if (!rest) rest = "Esemény";
+      const startTime = `${pad(startDate.getHours())}:${pad(startDate.getMinutes())}`;
+      const endTime = endDate ? `${pad(endDate.getHours())}:${pad(endDate.getMinutes())}` : null;
+      imported.push({
+        id: nextId(),
+        text: rest,
+        anchorDate: new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()),
+        recurrence: "none",
+        category: "egyetem",
+        completions: {},
+        note: "",
+        startTime,
+        endTime,
+      });
+    }
+    return imported;
+  }
+
+  function importFromSpreadsheet(file) {
+    if (typeof XLSX === "undefined") {
+      setImportMessage({ type: "error", text: "Az importáló könyvtár nem tölthető be, ellenőrizd az internetkapcsolatot." });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+
+        const headerRowIdx = findHeaderRow(rows);
+        if (headerRowIdx === -1) {
+          setImportMessage({ type: "error", text: "Nem sikerült felismerni az oszlopokat ebben a fájlban." });
+          return;
+        }
+        const headerRow = rows[headerRowIdx];
+        const startIdx = findColumnIndex(headerRow, COLUMN_ALIASES.start);
+        const endIdx = findColumnIndex(headerRow, COLUMN_ALIASES.end);
+        const nameIdx = findColumnIndex(headerRow, COLUMN_ALIASES.name);
+
+        if (startIdx === -1 || nameIdx === -1) {
+          setImportMessage({ type: "error", text: "Nem találtam kezdés- és névoszlopot a fájlban." });
+          return;
+        }
+
+        const imported = [];
+        for (let i = headerRowIdx + 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length === 0) continue;
+          const startDate = parseFlexibleDateTime(row[startIdx]);
+          if (!startDate) continue;
+          const name = String(row[nameIdx] || "").trim();
+          if (!name) continue;
+          const endDate = endIdx !== -1 ? parseFlexibleDateTime(row[endIdx]) : null;
+          const startTime = `${pad(startDate.getHours())}:${pad(startDate.getMinutes())}`;
+          const endTime = endDate ? `${pad(endDate.getHours())}:${pad(endDate.getMinutes())}` : null;
+          imported.push({
+            id: nextId(),
+            text: name,
+            anchorDate: new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()),
+            recurrence: "none",
+            category: "egyetem",
+            completions: {},
+            note: "",
+            startTime,
+            endTime,
+          });
+        }
+        finalizeImport(imported, "táblázat");
+      } catch (err) {
+        setImportMessage({ type: "error", text: "Hiba történt a fájl feldolgozása közben." });
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function importFromPdf(file) {
+    if (typeof pdfjsLib === "undefined") {
+      setImportMessage({ type: "error", text: "A PDF-olvasó könyvtár nem tölthető be, ellenőrizd az internetkapcsolatot." });
+      return;
+    }
+    setImportMessage({ type: "info", text: "PDF feldolgozása…" });
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const typedarray = new Uint8Array(evt.target.result);
+        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+        let fullText = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          fullText += content.items.map((it) => it.str).join(" ") + "\n";
+        }
+        const imported = parseGenericScheduleText(fullText);
+        finalizeImport(
+          imported,
+          "PDF",
+          "Ha egy szkennelt/kép-alapú PDF-ről van szó, előfordulhat, hogy nem talált szöveget – ilyenkor próbáld képként feltölteni."
+        );
+      } catch (err) {
+        setImportMessage({ type: "error", text: "Nem sikerült beolvasni a PDF-et." });
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function importFromImage(file) {
+    if (typeof Tesseract === "undefined") {
+      setImportMessage({ type: "error", text: "A képfelismerő könyvtár nem tölthető be, ellenőrizd az internetkapcsolatot." });
+      return;
+    }
+    setImportMessage({ type: "info", text: "Kép felismerése folyamatban… ez eltarthat fél-egy percig." });
+    Tesseract.recognize(file, "hun+eng")
+      .then(({ data: { text } }) => {
+        const imported = parseGenericScheduleText(text);
+        finalizeImport(
+          imported,
+          "kép",
+          "A képfelismerés nem tökéletes, érdemes ellenőrizni és javítani a bekerült teendőket."
+        );
+      })
+      .catch(() => {
+        setImportMessage({ type: "error", text: "Nem sikerült feldolgozni a képet." });
+      });
+  }
+
+  function handleImportFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".xlsx") || name.endsWith(".xls") || name.endsWith(".csv")) {
+      importFromSpreadsheet(file);
+    } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
+      importFromPdf(file);
+    } else if (file.type.startsWith("image/")) {
+      importFromImage(file);
+    } else {
+      setImportMessage({ type: "error", text: "Nem támogatott fájltípus. Excel, PDF vagy kép fájlt tölts fel." });
+    }
+  }
+
   const [selectedDay, setSelectedDay] = useState(getToday());
   const [windowWidth, setWindowWidth] = useState(
     typeof window !== "undefined" ? window.innerWidth : 1200
@@ -367,20 +612,245 @@ function WeeklyPlanner() {
     setNewText("");
     setNewRecurrence("none");
     setNewCategory("none");
+    setNewStartTime("");
+    setNewEndTime("");
   }
-  function closeAddForm() { setAddingFor(null); }
+  function closeAddForm() {
+    setAddingFor(null);
+    setNewStartTime("");
+    setNewEndTime("");
+  }
 
   function submitTask(day) {
     const text = newText.trim();
     if (!text) return;
     setTasks((ts) => [
       ...ts,
-      { id: nextId(), text, anchorDate: new Date(day.getFullYear(), day.getMonth(), day.getDate()), recurrence: newRecurrence, category: newCategory, completions: {} },
+      {
+        id: nextId(),
+        text,
+        anchorDate: new Date(day.getFullYear(), day.getMonth(), day.getDate()),
+        recurrence: newRecurrence,
+        category: newCategory,
+        completions: {},
+        note: "",
+        startTime: newStartTime || null,
+        endTime: newEndTime || null,
+      },
     ]);
     setAddingFor(null);
     setNewText("");
     setNewRecurrence("none");
     setNewCategory("none");
+    setNewStartTime("");
+    setNewEndTime("");
+  }
+
+  function renderTaskItem(task, dKey, isTodayCol) {
+    const done = !!task.completions[dKey];
+    const shouldPulse = isTodayCol && task.recurrence !== "none" && !done;
+    return (
+      <div
+        key={task.id + dKey}
+        className={`task-row${shouldPulse ? " pulse-task" : ""}`}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
+          background: "#fff",
+          border: `1px solid ${COLORS.border}`,
+          borderRadius: 10,
+          padding: "6px 8px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <button
+            onClick={() => toggleCompletion(task.id, dKey)}
+            aria-label={done ? "Kész" : "Nincs kész"}
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 6,
+              border: `1.5px solid ${COLORS.accent}`,
+              background: done ? COLORS.panel : "transparent",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              flexShrink: 0,
+              padding: 0,
+              fontSize: 12,
+              lineHeight: 1,
+            }}
+          >
+            {done && "✅"}
+          </button>
+          <span
+            style={{
+              fontSize: 13,
+              flex: "1 1 0%",
+              minWidth: 0,
+              wordBreak: "break-word",
+              textDecoration: done ? "line-through" : "none",
+              color: done ? COLORS.textSoft : COLORS.text,
+            }}
+          >
+            {task.startTime ? `${task.startTime}${task.endTime ? "–" + task.endTime : ""} ` : ""}
+            {task.text}
+          </span>
+          <button
+            onClick={() => toggleNoteOpen(task.id)}
+            aria-label="Jegyzet"
+            title="Jegyzet"
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              color: task.note ? COLORS.accentDark : COLORS.textSoft,
+              opacity: 1,
+              flexShrink: 0,
+              padding: 0,
+              marginTop: 2,
+              fontSize: 13,
+              lineHeight: 1,
+            }}
+          >
+            🗒️
+          </button>
+          <button
+            onClick={() => deleteTask(task.id)}
+            aria-label="Törlés"
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              color: COLORS.textSoft,
+              opacity: 1,
+              flexShrink: 0,
+              padding: 0,
+              marginTop: 2,
+            }}
+          >
+            <X size={13} />
+          </button>
+        </div>
+        {(task.category !== "none" || task.recurrence !== "none") && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 24 }}>
+            {task.category !== "none" && CATEGORY_STYLES[task.category] && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 500,
+                  padding: "2px 7px",
+                  borderRadius: 999,
+                  background: CATEGORY_STYLES[task.category].bg,
+                  color: CATEGORY_STYLES[task.category].text,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {CATEGORY_STYLES[task.category].label}
+              </span>
+            )}
+            {task.recurrence !== "none" && (
+              <span title={RECUR_LABELS[task.recurrence]} style={{ color: COLORS.textSoft, display: "flex" }}>
+                <RefreshCw size={11} />
+              </span>
+            )}
+          </div>
+        )}
+        {expandedNotes.has(task.id) ? (
+          <textarea
+            value={task.note || ""}
+            onChange={(e) => updateTaskNote(task.id, e.target.value)}
+            placeholder="Jegyzet ehhez a teendőhöz…"
+            style={{
+              marginTop: 4,
+              marginLeft: 24,
+              fontSize: 12,
+              padding: "5px 7px",
+              borderRadius: 8,
+              border: `1px solid ${COLORS.border}`,
+              background: "#fff",
+              fontFamily: "'Work Sans', sans-serif",
+              resize: "vertical",
+              minHeight: 40,
+            }}
+          />
+        ) : task.note ? (
+          <div
+            onClick={() => toggleNoteOpen(task.id)}
+            style={{
+              marginTop: 4,
+              marginLeft: 24,
+              fontSize: 11,
+              fontStyle: "italic",
+              color: COLORS.textSoft,
+              cursor: "pointer",
+              wordBreak: "break-word",
+            }}
+          >
+            {task.note}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderDayBody(dayTasks, dKey, isTodayCol, isAddingHere) {
+    const untimed = dayTasks.filter((t) => !t.startTime);
+    const timed = dayTasks.filter((t) => t.startTime);
+    const byHour = {};
+    timed.forEach((t) => {
+      let h = parseInt(String(t.startTime).split(":")[0], 10);
+      if (isNaN(h)) h = 6;
+      h = Math.min(22, Math.max(6, h));
+      if (!byHour[h]) byHour[h] = [];
+      byHour[h].push(t);
+    });
+    return (
+      <>
+        {dayTasks.length === 0 && !isAddingHere && (
+          <div style={{ fontSize: 12, color: COLORS.textSoft, fontStyle: "italic", padding: "6px 2px" }}>
+            Nincs teendő
+          </div>
+        )}
+        {untimed.map((task) => renderTaskItem(task, dKey, isTodayCol))}
+        {timed.length > 0 && (
+          <div style={{ marginTop: untimed.length ? 8 : 0, display: "flex", flexDirection: "column" }}>
+            {HOURS.map((h, idx) => (
+              <React.Fragment key={h}>
+                <div style={{ display: "flex", gap: 6, alignItems: "flex-start", padding: "1px 0" }}>
+                  <div style={{ width: 22, fontSize: 10, color: COLORS.textSoft, fontWeight: 600, flexShrink: 0, paddingTop: 2 }}>
+                    {h}
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                      borderTop: `1px solid ${COLORS.border}`,
+                      paddingTop: 3,
+                      minHeight: 6,
+                    }}
+                  >
+                    {(byHour[h] || []).map((task) => renderTaskItem(task, dKey, isTodayCol))}
+                  </div>
+                </div>
+                {idx < HOURS.length - 1 && (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <div style={{ width: 22, textAlign: "center", fontSize: 10, color: COLORS.border, flexShrink: 0 }}>
+                      –
+                    </div>
+                    <div style={{ flex: 1, borderTop: `1px dashed ${COLORS.border}`, opacity: 0.6 }} />
+                  </div>
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        )}
+      </>
+    );
   }
 
   function toggleCompletion(taskId, dKey) {
@@ -397,10 +867,14 @@ function WeeklyPlanner() {
     setTasks((ts) => ts.filter((t) => t.id !== taskId));
   }
 
+  function updateTaskNote(taskId, note) {
+    setTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, note } : t)));
+  }
+
   function addGeneralTask() {
     const text = generalText.trim();
     if (!text) return;
-    setGeneralTasks((gs) => [...gs, { id: nextId(), text, category: generalCategory, completed: false }]);
+    setGeneralTasks((gs) => [...gs, { id: nextId(), text, category: generalCategory, completed: false, note: "" }]);
     setGeneralText("");
     setGeneralCategory("none");
   }
@@ -410,6 +884,10 @@ function WeeklyPlanner() {
   function deleteGeneralTask(id) {
     setGeneralTasks((gs) => gs.filter((g) => g.id !== id));
   }
+  function updateGeneralNote(id, note) {
+    setGeneralTasks((gs) => gs.map((g) => (g.id === id ? { ...g, note } : g)));
+  }
+
 
   return (
     <div
@@ -567,7 +1045,7 @@ function WeeklyPlanner() {
         </div>
 
         {/* Category filter */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
           {CATEGORY_FILTERS.map((f) => {
             const active = categoryFilter === f.value;
             const style = CATEGORY_STYLES[f.value];
@@ -591,7 +1069,57 @@ function WeeklyPlanner() {
               </button>
             );
           })}
+
+          <button
+            onClick={handleImportClick}
+            style={{
+              fontSize: 12,
+              fontWeight: 500,
+              padding: "6px 14px",
+              borderRadius: 999,
+              border: `1px dashed ${COLORS.accentDark}`,
+              background: "transparent",
+              color: COLORS.accentDark,
+              cursor: "pointer",
+              marginLeft: "auto",
+            }}
+          >
+            📥 Naptár importálása (Excel / PDF / kép)
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv,.pdf,image/*"
+            onChange={handleImportFile}
+            style={{ display: "none" }}
+          />
         </div>
+
+        {importMessage && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 10,
+              fontSize: 12,
+              padding: "8px 12px",
+              borderRadius: 10,
+              marginBottom: 14,
+              background: importMessage.type === "error" ? "#FBE4E4" : COLORS.panel,
+              color: importMessage.type === "error" ? "#B33A3A" : COLORS.accentDark,
+              border: `1px solid ${importMessage.type === "error" ? "#E8AEAE" : COLORS.border}`,
+            }}
+          >
+            <span>{importMessage.text}</span>
+            <button
+              onClick={() => setImportMessage(null)}
+              style={{ border: "none", background: "transparent", cursor: "pointer", color: "inherit" }}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )}
 
         {/* Week grid */}
         {!isCompact && (
@@ -642,107 +1170,7 @@ function WeeklyPlanner() {
                 </div>
 
                 <div className="day-scroll" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-                  {dayTasks.length === 0 && !isAdding && (
-                    <div style={{ fontSize: 12, color: COLORS.textSoft, fontStyle: "italic", padding: "6px 2px" }}>
-                      Nincs teendő
-                    </div>
-                  )}
-                  {dayTasks.map((task) => {
-                    const done = !!task.completions[dKey];
-                    const shouldPulse = isToday && task.recurrence !== "none" && !done;
-                    return (
-                      <div
-                        key={task.id + dKey}
-                        className={`task-row${shouldPulse ? " pulse-task" : ""}`}
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 5,
-                          background: "#fff",
-                          border: `1px solid ${COLORS.border}`,
-                          borderRadius: 10,
-                          padding: "6px 8px",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                          <button
-                            onClick={() => toggleCompletion(task.id, dKey)}
-                            aria-label={done ? "Kész" : "Nincs kész"}
-                            style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 6,
-                              border: `1.5px solid ${COLORS.accent}`,
-                              background: done ? COLORS.panel : "transparent",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              cursor: "pointer",
-                              flexShrink: 0,
-                              marginTop: 0,
-                              padding: 0,
-                              fontSize: 12,
-                              lineHeight: 1,
-                            }}
-                          >
-                            {done && "✅"}
-                          </button>
-                          <span
-                            style={{
-                              fontSize: 13,
-                              flex: "1 1 0%",
-                              minWidth: 0,
-                              wordBreak: "break-word",
-                              textDecoration: done ? "line-through" : "none",
-                              color: done ? COLORS.textSoft : COLORS.text,
-                            }}
-                          >
-                            {task.text}
-                          </span>
-                          <button
-                            onClick={() => deleteTask(task.id)}
-                            aria-label="Törlés"
-                            style={{
-                              border: "none",
-                              background: "transparent",
-                              cursor: "pointer",
-                              color: COLORS.textSoft,
-                              opacity: 1,
-                              flexShrink: 0,
-                              padding: 0,
-                              marginTop: 2,
-                            }}
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                        {(task.category !== "none" || task.recurrence !== "none") && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 24 }}>
-                            {task.category !== "none" && CATEGORY_STYLES[task.category] && (
-                              <span
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: 500,
-                                  padding: "2px 7px",
-                                  borderRadius: 999,
-                                  background: CATEGORY_STYLES[task.category].bg,
-                                  color: CATEGORY_STYLES[task.category].text,
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {CATEGORY_STYLES[task.category].label}
-                              </span>
-                            )}
-                            {task.recurrence !== "none" && (
-                              <span title={RECUR_LABELS[task.recurrence]} style={{ color: COLORS.textSoft, display: "flex" }}>
-                                <RefreshCw size={11} />
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {renderDayBody(dayTasks, dKey, isToday, isAdding)}
                 </div>
 
                 {isAdding ? (
@@ -766,6 +1194,40 @@ function WeeklyPlanner() {
                         fontFamily: "'Work Sans', sans-serif",
                       }}
                     />
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        type="time"
+                        value={newStartTime}
+                        onChange={(e) => setNewStartTime(e.target.value)}
+                        title="Kezdés (opcionális)"
+                        style={{
+                          flex: 1,
+                          fontSize: 12,
+                          padding: "5px 6px",
+                          borderRadius: 8,
+                          border: `1px solid ${COLORS.border}`,
+                          background: "#fff",
+                          fontFamily: "'Work Sans', sans-serif",
+                          color: COLORS.text,
+                        }}
+                      />
+                      <input
+                        type="time"
+                        value={newEndTime}
+                        onChange={(e) => setNewEndTime(e.target.value)}
+                        title="Vég (opcionális)"
+                        style={{
+                          flex: 1,
+                          fontSize: 12,
+                          padding: "5px 6px",
+                          borderRadius: 8,
+                          border: `1px solid ${COLORS.border}`,
+                          background: "#fff",
+                          fontFamily: "'Work Sans', sans-serif",
+                          color: COLORS.text,
+                        }}
+                      />
+                    </div>
                     <select
                       value={newRecurrence}
                       onChange={(e) => setNewRecurrence(e.target.value)}
@@ -928,106 +1390,7 @@ function WeeklyPlanner() {
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {dayTasks.length === 0 && !isAdding && (
-                    <div style={{ fontSize: 12, color: COLORS.textSoft, fontStyle: "italic", padding: "6px 2px" }}>
-                      Nincs teendő
-                    </div>
-                  )}
-                  {dayTasks.map((task) => {
-                    const done = !!task.completions[dKey];
-                    const shouldPulse = isToday && task.recurrence !== "none" && !done;
-                    return (
-                      <div
-                        key={task.id + dKey}
-                        className={`task-row${shouldPulse ? " pulse-task" : ""}`}
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 5,
-                          background: "#fff",
-                          border: `1px solid ${COLORS.border}`,
-                          borderRadius: 10,
-                          padding: "6px 8px",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                          <button
-                            onClick={() => toggleCompletion(task.id, dKey)}
-                            aria-label={done ? "Kész" : "Nincs kész"}
-                            style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 6,
-                              border: `1.5px solid ${COLORS.accent}`,
-                              background: done ? COLORS.panel : "transparent",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              cursor: "pointer",
-                              flexShrink: 0,
-                              padding: 0,
-                              fontSize: 12,
-                              lineHeight: 1,
-                            }}
-                          >
-                            {done && "✅"}
-                          </button>
-                          <span
-                            style={{
-                              fontSize: 13,
-                              flex: "1 1 0%",
-                              minWidth: 0,
-                              wordBreak: "break-word",
-                              textDecoration: done ? "line-through" : "none",
-                              color: done ? COLORS.textSoft : COLORS.text,
-                            }}
-                          >
-                            {task.text}
-                          </span>
-                          <button
-                            onClick={() => deleteTask(task.id)}
-                            aria-label="Törlés"
-                            style={{
-                              border: "none",
-                              background: "transparent",
-                              cursor: "pointer",
-                              color: COLORS.textSoft,
-                              opacity: 1,
-                              flexShrink: 0,
-                              padding: 0,
-                              marginTop: 2,
-                            }}
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                        {(task.category !== "none" || task.recurrence !== "none") && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 24 }}>
-                            {task.category !== "none" && CATEGORY_STYLES[task.category] && (
-                              <span
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: 500,
-                                  padding: "2px 7px",
-                                  borderRadius: 999,
-                                  background: CATEGORY_STYLES[task.category].bg,
-                                  color: CATEGORY_STYLES[task.category].text,
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {CATEGORY_STYLES[task.category].label}
-                              </span>
-                            )}
-                            {task.recurrence !== "none" && (
-                              <span title={RECUR_LABELS[task.recurrence]} style={{ color: COLORS.textSoft, display: "flex" }}>
-                                <RefreshCw size={11} />
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {renderDayBody(dayTasks, dKey, isToday, isAdding)}
                 </div>
 
                 {isAdding ? (
@@ -1051,6 +1414,40 @@ function WeeklyPlanner() {
                         fontFamily: "'Work Sans', sans-serif",
                       }}
                     />
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        type="time"
+                        value={newStartTime}
+                        onChange={(e) => setNewStartTime(e.target.value)}
+                        title="Kezdés (opcionális)"
+                        style={{
+                          flex: 1,
+                          fontSize: 12,
+                          padding: "5px 6px",
+                          borderRadius: 8,
+                          border: `1px solid ${COLORS.border}`,
+                          background: "#fff",
+                          fontFamily: "'Work Sans', sans-serif",
+                          color: COLORS.text,
+                        }}
+                      />
+                      <input
+                        type="time"
+                        value={newEndTime}
+                        onChange={(e) => setNewEndTime(e.target.value)}
+                        title="Vég (opcionális)"
+                        style={{
+                          flex: 1,
+                          fontSize: 12,
+                          padding: "5px 6px",
+                          borderRadius: 8,
+                          border: `1px solid ${COLORS.border}`,
+                          background: "#fff",
+                          fontFamily: "'Work Sans', sans-serif",
+                          color: COLORS.text,
+                        }}
+                      />
+                    </div>
                     <select
                       value={newRecurrence}
                       onChange={(e) => setNewRecurrence(e.target.value)}
@@ -1229,6 +1626,25 @@ function WeeklyPlanner() {
                     {g.text}
                   </span>
                   <button
+                    onClick={() => toggleNoteOpen(g.id)}
+                    aria-label="Jegyzet"
+                    title="Jegyzet"
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      color: g.note ? COLORS.accentDark : COLORS.textSoft,
+                      opacity: 1,
+                      flexShrink: 0,
+                      padding: 0,
+                      marginTop: 2,
+                      fontSize: 13,
+                      lineHeight: 1,
+                    }}
+                  >
+                    🗒️
+                  </button>
+                  <button
                     onClick={() => deleteGeneralTask(g.id)}
                     aria-label="Törlés"
                     style={{
@@ -1262,6 +1678,40 @@ function WeeklyPlanner() {
                     </span>
                   </div>
                 )}
+                {expandedNotes.has(g.id) ? (
+                  <textarea
+                    value={g.note || ""}
+                    onChange={(e) => updateGeneralNote(g.id, e.target.value)}
+                    placeholder="Jegyzet ehhez a teendőhöz…"
+                    style={{
+                      marginTop: 4,
+                      marginLeft: 24,
+                      fontSize: 12,
+                      padding: "5px 7px",
+                      borderRadius: 8,
+                      border: `1px solid ${COLORS.border}`,
+                      background: "#fff",
+                      fontFamily: "'Work Sans', sans-serif",
+                      resize: "vertical",
+                      minHeight: 40,
+                    }}
+                  />
+                ) : g.note ? (
+                  <div
+                    onClick={() => toggleNoteOpen(g.id)}
+                    style={{
+                      marginTop: 4,
+                      marginLeft: 24,
+                      fontSize: 11,
+                      fontStyle: "italic",
+                      color: COLORS.textSoft,
+                      cursor: "pointer",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {g.note}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
