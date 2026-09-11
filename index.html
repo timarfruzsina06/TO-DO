@@ -342,6 +342,27 @@ function WeeklyPlanner() {
   const [expandedNotes, setExpandedNotes] = useState(() => new Set());
   const [colorPickerOpen, setColorPickerOpen] = useState(() => new Set());
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState("");
+
+  function startEditText(task) {
+    setEditingId(task.id);
+    setEditText(task.text);
+  }
+  function cancelEditText() {
+    setEditingId(null);
+    setEditText("");
+  }
+  function saveEditText() {
+    const text = editText.trim();
+    if (!editingId) return;
+    if (text) {
+      setTasks((ts) => ts.map((t) => (t.id === editingId ? { ...t, text } : t)));
+      setGeneralTasks((gs) => gs.map((g) => (g.id === editingId ? { ...g, text } : g)));
+    }
+    setEditingId(null);
+    setEditText("");
+  }
   const fileInputRef = React.useRef(null);
 
   function toggleNoteOpen(id) {
@@ -802,6 +823,24 @@ function WeeklyPlanner() {
           >
             {done && "✅"}
           </button>
+          {editingId === task.id ? (
+            <input
+              autoFocus
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveEditText(); if (e.key === "Escape") cancelEditText(); }}
+              onBlur={saveEditText}
+              style={{
+                fontSize: 13,
+                flex: "1 1 0%",
+                minWidth: 0,
+                border: `1px solid ${COLORS.accentDark}`,
+                borderRadius: 6,
+                padding: "2px 6px",
+                fontFamily: "'Work Sans', sans-serif",
+              }}
+            />
+          ) : (
           <span
             style={{
               fontSize: 13,
@@ -817,6 +856,15 @@ function WeeklyPlanner() {
             {task.startTime ? `${task.startTime}${task.endTime ? "–" + task.endTime : ""} ` : ""}
             {task.text}
           </span>
+          )}
+          <button
+            onClick={() => startEditText(task)}
+            aria-label="Szerkesztés"
+            title="Név szerkesztése"
+            style={{ border: "none", background: "transparent", cursor: "pointer", color: COLORS.textSoft, flexShrink: 0, padding: 0, marginTop: 3, fontSize: 12 }}
+          >
+            ✏️
+          </button>
           <button
             onClick={() => toggleColorPicker(task.id)}
             aria-label="Szín"
@@ -999,6 +1047,25 @@ function WeeklyPlanner() {
             {done && "✓"}
           </button>
           {isTiny && (
+            editingId === task.id ? (
+              <input
+                autoFocus
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveEditText(); if (e.key === "Escape") cancelEditText(); }}
+                onBlur={saveEditText}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  fontSize: 11,
+                  minWidth: 0,
+                  flex: "1 1 auto",
+                  border: `1px solid ${COLORS.accentDark}`,
+                  borderRadius: 4,
+                  padding: "0 3px",
+                  fontFamily: "'Work Sans', sans-serif",
+                }}
+              />
+            ) : (
             <span
               title={task.text}
               style={{
@@ -1016,8 +1083,17 @@ function WeeklyPlanner() {
             >
               {label}
             </span>
+            )
           )}
           {!isTiny && <div style={{ flex: 1 }} />}
+          <button
+            onClick={() => startEditText(task)}
+            aria-label="Szerkesztés"
+            title="Név szerkesztése"
+            style={{ border: "none", background: "transparent", cursor: "pointer", color: COLORS.textSoft, flexShrink: 0, padding: 0, fontSize: 10, lineHeight: 1 }}
+          >
+            ✏️
+          </button>
           <button
             onClick={() => toggleColorPicker(task.id)}
             aria-label="Szín"
@@ -1050,6 +1126,24 @@ function WeeklyPlanner() {
           </button>
         </div>
         {!isTiny && (
+          editingId === task.id ? (
+            <input
+              autoFocus
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveEditText(); if (e.key === "Escape") cancelEditText(); }}
+              onBlur={saveEditText}
+              style={{
+                fontSize: 11,
+                border: `1px solid ${COLORS.accentDark}`,
+                borderRadius: 4,
+                padding: "2px 4px",
+                fontFamily: "'Work Sans', sans-serif",
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            />
+          ) : (
           <div
             title={task.text}
             style={{
@@ -1067,6 +1161,7 @@ function WeeklyPlanner() {
           >
             {label}
           </div>
+          )
         )}
         {task.recurrence !== "none" && !isTiny && (
           <span title={RECUR_LABELS[task.recurrence]} style={{ color: COLORS.textSoft, display: "flex" }}>
@@ -2063,6 +2158,24 @@ function WeeklyPlanner() {
                   >
                     {g.completed && "✅"}
                   </button>
+                  {editingId === g.id ? (
+                    <input
+                      autoFocus
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") saveEditText(); if (e.key === "Escape") cancelEditText(); }}
+                      onBlur={saveEditText}
+                      style={{
+                        fontSize: 13,
+                        flex: "1 1 0%",
+                        minWidth: 0,
+                        border: `1px solid ${COLORS.accentDark}`,
+                        borderRadius: 6,
+                        padding: "2px 6px",
+                        fontFamily: "'Work Sans', sans-serif",
+                      }}
+                    />
+                  ) : (
                   <span
                     style={{
                       fontSize: 13,
@@ -2077,6 +2190,15 @@ function WeeklyPlanner() {
                   >
                     {g.text}
                   </span>
+                  )}
+                  <button
+                    onClick={() => startEditText(g)}
+                    aria-label="Szerkesztés"
+                    title="Név szerkesztése"
+                    style={{ border: "none", background: "transparent", cursor: "pointer", color: COLORS.textSoft, flexShrink: 0, padding: 0, marginTop: 3, fontSize: 12 }}
+                  >
+                    ✏️
+                  </button>
                   <button
                     onClick={() => toggleColorPicker(g.id)}
                     aria-label="Szín"
