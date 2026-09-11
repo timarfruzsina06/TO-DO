@@ -1223,7 +1223,8 @@ function WeeklyPlanner() {
     const textColor = task.color ? COLORS.text : (catStyle ? catStyle.text : COLORS.text);
     const borderLeftColor = task.color ? darkenHex(task.color, 30) : COLORS.accent;
     const heightPx = Math.max(20, ((endMin - startMin) / 60) * HOUR_HEIGHT);
-    const isTiny = heightPx < 34 || forceCompact;
+    const isTiny = heightPx < 34;
+    const iconsCollapsed = !!forceCompact;
     const topRowH = 16;
     const textAreaH = Math.max(13, heightPx - topRowH - 6);
     const maxLines = Math.max(1, Math.floor(textAreaH / 13));
@@ -1310,8 +1311,13 @@ function WeeklyPlanner() {
             </span>
             )
           )}
-          {!isTiny && <div style={{ flex: 1 }} />}
-          {(!isTiny || expandedActions.has(task.id)) && (
+          {!isTiny && (
+            <div
+              onClick={() => iconsCollapsed && toggleActionsExpanded(task.id)}
+              style={{ flex: 1, cursor: iconsCollapsed ? "pointer" : "default", alignSelf: "stretch" }}
+            />
+          )}
+          {(!iconsCollapsed || expandedActions.has(task.id)) && (
             <>
           <button
             onClick={() => startEditText(task)}
@@ -1374,6 +1380,7 @@ function WeeklyPlanner() {
           ) : (
           <div
             title={task.text}
+            onClick={() => iconsCollapsed && toggleActionsExpanded(task.id)}
             style={{
               fontSize: 11,
               lineHeight: "13px",
@@ -1385,6 +1392,7 @@ function WeeklyPlanner() {
               WebkitBoxOrient: "vertical",
               overflow: "hidden",
               wordBreak: "break-word",
+              cursor: iconsCollapsed ? "pointer" : "default",
             }}
           >
             {label}
