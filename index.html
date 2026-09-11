@@ -1131,7 +1131,6 @@ function WeeklyPlanner() {
           borderLeft: `3px solid ${borderLeftColor}`,
           borderRadius: 6,
           padding: isTiny ? "1px 4px" : "3px 5px",
-          overflow: "hidden",
           display: "flex",
           flexDirection: isTiny ? "row" : "column",
           alignItems: isTiny ? "center" : "stretch",
@@ -1139,7 +1138,7 @@ function WeeklyPlanner() {
           boxSizing: "border-box",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, flex: isTiny ? "1 1 auto" : "0 0 auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0, flex: isTiny ? "1 1 auto" : "0 0 auto", overflow: "hidden" }}>
           <button
             onClick={() => toggleCompletion(task.id, dKey)}
             aria-label={done ? "Kész" : "Nincs kész"}
