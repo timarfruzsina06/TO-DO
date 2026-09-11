@@ -224,6 +224,7 @@ function WeeklyPlanner() {
   const [tasks, setTasks] = useState([]);
   const [generalTasks, setGeneralTasks] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [syncError, setSyncError] = useState(false);
   const [generalText, setGeneralText] = useState("");
   const [generalCategory, setGeneralCategory] = useState("none");
   const [addingFor, setAddingFor] = useState(null);
@@ -252,51 +253,63 @@ function WeeklyPlanner() {
     return () => clearInterval(id);
   }, []);
 
-  // Mentett adatok betöltése (vagy minta-adatok, ha még nincs mentés), majd
-  // a lejárt, kész, nem ismétlődő feladatok eltávolítása.
+  // Élő Firestore-szinkronizálás: bármelyik eszközön történik változás,
+  // az azonnal megjelenik a másikon is (onSnapshot valós idejű figyelő).
+  const isRemoteUpdate = React.useRef(false);
+
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      let loadedTasks = SEED_TASKS;
-      let loadedGeneral = SEED_GENERAL;
-      try {
-        const res = await window.storage.get("tasks", false);
-        if (res && res.value) {
-          loadedTasks = JSON.parse(res.value).map((t) => ({ ...t, anchorDate: parseKey(t.anchorDate) }));
+    const unsub = todoDocRef.onSnapshot(
+      (snap) => {
+        let loadedTasks = SEED_TASKS;
+        let loadedGeneral = SEED_GENERAL;
+        if (snap.exists) {
+          const data = snap.data();
+          if (data.tasks) {
+            loadedTasks = JSON.parse(data.tasks).map((t) => ({ ...t, anchorDate: parseKey(t.anchorDate) }));
+          }
+          if (data.generalTasks) loadedGeneral = JSON.parse(data.generalTasks);
         }
-      } catch (e) { /* még nincs mentett adat */ }
-      try {
-        const res2 = await window.storage.get("generalTasks", false);
-        if (res2 && res2.value) loadedGeneral = JSON.parse(res2.value);
-      } catch (e) { /* még nincs mentett adat */ }
 
-      loadedTasks = loadedTasks.filter((t) => {
-        if (t.recurrence !== "none") return true;
-        const isPast = daysBetween(t.anchorDate, getToday()) > 0;
-        const wasCompleted = !!t.completions[dateKey(t.anchorDate)];
-        return !(isPast && wasCompleted);
-      });
+        loadedTasks = loadedTasks.filter((t) => {
+          if (t.recurrence !== "none") return true;
+          const isPast = daysBetween(t.anchorDate, getToday()) > 0;
+          const wasCompleted = !!t.completions[dateKey(t.anchorDate)];
+          return !(isPast && wasCompleted);
+        });
 
-      if (!cancelled) {
+        isRemoteUpdate.current = true;
         setTasks(loadedTasks);
         setGeneralTasks(loadedGeneral);
         setLoaded(true);
+        setSyncError(false);
+
+        if (!snap.exists) {
+          todoDocRef.set({
+            tasks: JSON.stringify(loadedTasks.map((t) => ({ ...t, anchorDate: dateKey(t.anchorDate) }))),
+            generalTasks: JSON.stringify(loadedGeneral),
+          });
+        }
+      },
+      () => {
+        setSyncError(true);
+        setLoaded(true);
       }
-    }
-    load();
-    return () => { cancelled = true; };
+    );
+    return () => unsub();
   }, []);
 
-  // Minden változás után automatikusan mentés
+  // Minden helyi változás után automatikusan mentés a felhőbe
   useEffect(() => {
     if (!loaded) return;
+    if (isRemoteUpdate.current) { isRemoteUpdate.current = false; return; }
     const toSave = tasks.map((t) => ({ ...t, anchorDate: dateKey(t.anchorDate) }));
-    window.storage.set("tasks", JSON.stringify(toSave), false).catch(() => {});
+    todoDocRef.set({ tasks: JSON.stringify(toSave) }, { merge: true }).catch(() => setSyncError(true));
   }, [tasks, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
-    window.storage.set("generalTasks", JSON.stringify(generalTasks), false).catch(() => {});
+    if (isRemoteUpdate.current) { return; }
+    todoDocRef.set({ generalTasks: JSON.stringify(generalTasks) }, { merge: true }).catch(() => setSyncError(true));
   }, [generalTasks, loaded]);
 
   if (!loaded) {
@@ -311,9 +324,13 @@ function WeeklyPlanner() {
           alignItems: "center",
           justifyContent: "center",
           fontSize: 14,
+          textAlign: "center",
+          padding: 20,
         }}
       >
-        Betöltés…
+        {syncError
+          ? "Nem sikerült csatlakozni a szinkronizált tárolóhoz. Ellenőrizd az internetkapcsolatot, majd töltsd újra az oldalt."
+          : "Betöltés\u2026"}
       </div>
     );
   }
