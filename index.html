@@ -375,6 +375,14 @@ function WeeklyPlanner() {
   const [editRecurrence, setEditRecurrence] = useState("none");
   const [editApplyConfirm, setEditApplyConfirm] = useState(null);
   const [colorApplyConfirm, setColorApplyConfirm] = useState(null);
+  const [expandedActions, setExpandedActions] = useState(() => new Set());
+  function toggleActionsExpanded(id) {
+    setExpandedActions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   function startEditText(task) {
     setEditingId(task.id);
@@ -1283,6 +1291,7 @@ function WeeklyPlanner() {
             ) : (
             <span
               title={task.text}
+              onClick={() => toggleActionsExpanded(task.id)}
               style={{
                 fontSize: 11,
                 lineHeight: 1.15,
@@ -1294,6 +1303,7 @@ function WeeklyPlanner() {
                 textDecoration: done ? "line-through" : "none",
                 color: done ? COLORS.textSoft : textColor,
                 fontWeight: 500,
+                cursor: "pointer",
               }}
             >
               {label}
@@ -1301,6 +1311,8 @@ function WeeklyPlanner() {
             )
           )}
           {!isTiny && <div style={{ flex: 1 }} />}
+          {(!isTiny || expandedActions.has(task.id)) && (
+            <>
           <button
             onClick={() => startEditText(task)}
             aria-label="Szerkesztés"
@@ -1339,6 +1351,8 @@ function WeeklyPlanner() {
           >
             <X size={11} />
           </button>
+            </>
+          )}
         </div>
         {!isTiny && (
           editingId === task.id ? (
