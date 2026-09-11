@@ -291,6 +291,7 @@ function buildMonthMatrix(monthDate) {
 function taskOccursOn(task, d) {
   const diff = daysBetween(task.anchorDate, d);
   if (diff < 0) return false;
+  if (task.excludedDates && task.excludedDates.includes(dateKey(d))) return false;
   switch (task.recurrence) {
     case "none": return diff === 0;
     case "daily": return true;
@@ -340,6 +341,7 @@ function WeeklyPlanner() {
   const [lastImportIds, setLastImportIds] = useState([]);
   const [expandedNotes, setExpandedNotes] = useState(() => new Set());
   const [colorPickerOpen, setColorPickerOpen] = useState(() => new Set());
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const fileInputRef = React.useRef(null);
 
   function toggleNoteOpen(id) {
@@ -851,7 +853,7 @@ function WeeklyPlanner() {
             🗒️
           </button>
           <button
-            onClick={() => deleteTask(task.id)}
+            onClick={() => requestDeleteTask(task, dKey)}
             aria-label="Törlés"
             style={{
               border: "none",
@@ -1040,7 +1042,7 @@ function WeeklyPlanner() {
             🗒️
           </button>
           <button
-            onClick={() => deleteTask(task.id)}
+            onClick={() => requestDeleteTask(task, dKey)}
             aria-label="Törlés"
             style={{ border: "none", background: "transparent", cursor: "pointer", color: COLORS.textSoft, flexShrink: 0, padding: 0 }}
           >
@@ -1217,6 +1219,58 @@ function WeeklyPlanner() {
 
   function deleteTask(taskId) {
     setTasks((ts) => ts.filter((t) => t.id !== taskId));
+  }
+
+  // Törlés kérése: ha ismétlődő, vagy több, azonos nevű esemény is van,
+  // megkérdezzük, hogy csak ezt az egyet, vagy a rá következő azonos
+  // nevű/ismétlődő alkalmakat is törölje-e.
+  function requestDeleteTask(task, dKey) {
+    if (task.recurrence !== "none") {
+      setDeleteConfirm({ task, dKey });
+      return;
+    }
+    const hasSameName = tasks.some((t) => t.id !== task.id && t.text === task.text);
+    if (hasSameName) {
+      setDeleteConfirm({ task, dKey });
+    } else {
+      deleteTask(task.id);
+    }
+  }
+
+  function confirmDeleteOnlyThis() {
+    if (!deleteConfirm) return;
+    const { task, dKey } = deleteConfirm;
+    if (task.recurrence !== "none") {
+      setTasks((ts) =>
+        ts.map((t) =>
+          t.id === task.id
+            ? { ...t, excludedDates: [...(t.excludedDates || []), dKey] }
+            : t
+        )
+      );
+    } else {
+      deleteTask(task.id);
+    }
+    setDeleteConfirm(null);
+  }
+
+  function confirmDeleteAllFollowing() {
+    if (!deleteConfirm) return;
+    const { task } = deleteConfirm;
+    if (task.recurrence !== "none") {
+      deleteTask(task.id);
+    } else {
+      setTasks((ts) =>
+        ts.filter((t) => !(t.text === task.text && daysBetween(task.anchorDate, t.anchorDate) >= 0))
+      );
+    }
+    setDeleteConfirm(null);
+  }
+
+  function clearAllTasks() {
+    if (window.confirm("Biztosan törlöd a TELJES naptárat? Minden heti/napi teendő véglegesen törlődik, ez nem vonható vissza.")) {
+      setTasks([]);
+    }
   }
 
   function updateTaskNote(taskId, note) {
@@ -1444,6 +1498,21 @@ function WeeklyPlanner() {
             }}
           >
             📥 Naptár importálása (Excel / PDF / kép)
+          </button>
+          <button
+            onClick={clearAllTasks}
+            style={{
+              fontSize: 12,
+              fontWeight: 500,
+              padding: "6px 14px",
+              borderRadius: 999,
+              border: `1px solid #E8AEAE`,
+              background: "transparent",
+              color: "#B33A3A",
+              cursor: "pointer",
+            }}
+          >
+            🗑️ Naptár törlése
           </button>
           <input
             ref={fileInputRef}
@@ -2185,6 +2254,91 @@ function WeeklyPlanner() {
           build: 2026-09-11-v2-szinek
         </div>
       </div>
+
+      {deleteConfirm && (
+        <div
+          onClick={() => setDeleteConfirm(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(61,49,50,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              borderRadius: 16,
+              padding: "20px 22px",
+              maxWidth: 360,
+              width: "100%",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+            }}
+          >
+            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 20, color: COLORS.accentDark, marginBottom: 8 }}>
+              Törlés
+            </div>
+            <div style={{ fontSize: 13, color: COLORS.text, marginBottom: 18, lineHeight: 1.5 }}>
+              {deleteConfirm.task.recurrence !== "none"
+                ? `„${deleteConfirm.task.text}" egy ismétlődő teendő. Csak ezt az egy alkalmat törlöd, vagy az egész ismétlődő sorozatot?`
+                : `Több „${deleteConfirm.task.text}" nevű esemény is szerepel a naptárban. Csak ezt az egyet törlöd, vagy ezt és az összes rá következő ugyanilyen nevű eseményt is?`}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                onClick={confirmDeleteOnlyThis}
+                style={{
+                  padding: "9px 0",
+                  borderRadius: 10,
+                  border: `1px solid ${COLORS.border}`,
+                  background: COLORS.panelSoft,
+                  color: COLORS.text,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                Csak ezt az egyet
+              </button>
+              <button
+                onClick={confirmDeleteAllFollowing}
+                style={{
+                  padding: "9px 0",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "#B33A3A",
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                {deleteConfirm.task.recurrence !== "none"
+                  ? "Az egész sorozatot"
+                  : "Ezt és a rá következőket is"}
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                style={{
+                  padding: "9px 0",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "transparent",
+                  color: COLORS.textSoft,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Mégse
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
