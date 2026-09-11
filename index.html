@@ -896,6 +896,21 @@ function WeeklyPlanner() {
 
   const monthMatrix = buildMonthMatrix(weekStart);
   const miniMonthLabel = `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getFullYear()}`;
+
+  // Ha valamelyik napon több esemény is ütközik egy időpontban, az egész
+  // heti rács oszlopait szélesebbre vesszük, hogy az ikonok elférjenek.
+  const weekMaxCols = Math.max(
+    1,
+    ...weekDays.map((day) => {
+      const dTasks = tasks
+        .filter((t) => taskOccursOn(t, day))
+        .filter((t) => categoryFilter === "all" || t.category === categoryFilter);
+      const positioned = getPositionedEvents(dTasks);
+      return positioned.length > 0 ? positioned[0].totalCols : 1;
+    })
+  );
+  const dayColMinWidth = Math.max(210, 130 * weekMaxCols + 40);
+
   const filteredGeneral = generalTasks.filter(
     (g) => categoryFilter === "all" || g.category === categoryFilter
   );
@@ -1425,10 +1440,8 @@ function WeeklyPlanner() {
     );
   }
 
-  function renderDayBody(dayTasks, dKey, isTodayCol, isAddingHere) {
-    const untimed = dayTasks.filter((t) => !t.startTime);
+  function getPositionedEvents(dayTasks) {
     const timedRaw = dayTasks.filter((t) => t.startTime);
-
     const timedEvents = timedRaw.map((t) => {
       const s = clampMin(timeToMinutes(t.startTime) ?? DAY_START_MIN);
       let e = t.endTime ? timeToMinutes(t.endTime) : null;
@@ -1437,7 +1450,12 @@ function WeeklyPlanner() {
       if (e <= s) e = Math.min(DAY_END_MIN, s + 30);
       return { task: t, start: s, end: e };
     });
-    const positioned = assignColumns(timedEvents);
+    return assignColumns(timedEvents);
+  }
+
+  function renderDayBody(dayTasks, dKey, isTodayCol, isAddingHere) {
+    const untimed = dayTasks.filter((t) => !t.startTime);
+    const positioned = getPositionedEvents(dayTasks);
 
     return (
       <>
@@ -1891,7 +1909,7 @@ function WeeklyPlanner() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(7, minmax(210px, 1fr))",
+            gridTemplateColumns: `repeat(7, minmax(${dayColMinWidth}px, 1fr))`,
             gap: 14,
             overflowX: "auto",
           }}
