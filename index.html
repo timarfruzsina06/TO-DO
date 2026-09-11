@@ -277,6 +277,7 @@ function WeeklyPlanner() {
   const [tasks, setTasks] = useState([]);
   const [generalTasks, setGeneralTasks] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [syncError, setSyncError] = useState(false);
   const [generalText, setGeneralText] = useState("");
   const [generalCategory, setGeneralCategory] = useState("none");
   const [addingFor, setAddingFor] = useState(null);
