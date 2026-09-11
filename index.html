@@ -198,6 +198,24 @@ const CATEGORY_FILTERS = [
   { value: "munka", label: "Munka" },
 ];
 
+const PASTEL_COLORS = [
+  { name: "Rózsaszín", hex: "#F8D7DA" },
+  { name: "Barack", hex: "#FCE1C0" },
+  { name: "Vajsárga", hex: "#FBF3B9" },
+  { name: "Menta", hex: "#D7F0D1" },
+  { name: "Türkiz", hex: "#C7ECE6" },
+  { name: "Égkék", hex: "#CFE3F7" },
+  { name: "Levendula", hex: "#DED2F5" },
+  { name: "Orgona", hex: "#F0D4E8" },
+];
+function darkenHex(hex, amount) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, ((n >> 16) & 255) - amount);
+  const g = Math.max(0, ((n >> 8) & 255) - amount);
+  const b = Math.max(0, (n & 255) - amount);
+  return `rgb(${r},${g},${b})`;
+}
+
 function pad(n) { return n < 10 ? "0" + n : "" + n; }
 function dateKey(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 
@@ -309,16 +327,19 @@ function WeeklyPlanner() {
   const [syncError, setSyncError] = useState(false);
   const [generalText, setGeneralText] = useState("");
   const [generalCategory, setGeneralCategory] = useState("none");
+  const [generalColor, setGeneralColor] = useState(null);
   const [addingFor, setAddingFor] = useState(null);
   const [newText, setNewText] = useState("");
   const [newRecurrence, setNewRecurrence] = useState("none");
   const [newCategory, setNewCategory] = useState("none");
+  const [newColor, setNewColor] = useState(null);
   const [newStartTime, setNewStartTime] = useState("");
   const [newEndTime, setNewEndTime] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [importMessage, setImportMessage] = useState(null);
   const [lastImportIds, setLastImportIds] = useState([]);
   const [expandedNotes, setExpandedNotes] = useState(() => new Set());
+  const [colorPickerOpen, setColorPickerOpen] = useState(() => new Set());
   const fileInputRef = React.useRef(null);
 
   function toggleNoteOpen(id) {
@@ -327,6 +348,56 @@ function WeeklyPlanner() {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  }
+
+  function toggleColorPicker(id) {
+    setColorPickerOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function ColorSwatchRow({ value, onChange, small }) {
+    return (
+      <div style={{ display: "flex", gap: small ? 4 : 6, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          title="Nincs szín"
+          style={{
+            width: small ? 16 : 20,
+            height: small ? 16 : 20,
+            borderRadius: "50%",
+            border: `1.5px solid ${COLORS.border}`,
+            background: "repeating-linear-gradient(45deg, #fff, #fff 2px, #eee 2px, #eee 4px)",
+            cursor: "pointer",
+            padding: 0,
+            outline: value === null ? `2px solid ${COLORS.accentDark}` : "none",
+            outlineOffset: 1,
+          }}
+        />
+        {PASTEL_COLORS.map((c) => (
+          <button
+            type="button"
+            key={c.hex}
+            onClick={() => onChange(c.hex)}
+            title={c.name}
+            style={{
+              width: small ? 16 : 20,
+              height: small ? 16 : 20,
+              borderRadius: "50%",
+              border: `1.5px solid ${darkenHex(c.hex, 25)}`,
+              background: c.hex,
+              cursor: "pointer",
+              padding: 0,
+              outline: value === c.hex ? `2px solid ${COLORS.accentDark}` : "none",
+              outlineOffset: 1,
+            }}
+          />
+        ))}
+      </div>
+    );
   }
 
   function handleImportClick() {
@@ -652,11 +723,13 @@ function WeeklyPlanner() {
     setNewCategory("none");
     setNewStartTime("");
     setNewEndTime("");
+    setNewColor(null);
   }
   function closeAddForm() {
     setAddingFor(null);
     setNewStartTime("");
     setNewEndTime("");
+    setNewColor(null);
   }
 
   function submitTask(day) {
@@ -674,6 +747,7 @@ function WeeklyPlanner() {
         note: "",
         startTime: newStartTime || null,
         endTime: newEndTime || null,
+        color: newColor,
       },
     ]);
     setAddingFor(null);
@@ -682,6 +756,7 @@ function WeeklyPlanner() {
     setNewCategory("none");
     setNewStartTime("");
     setNewEndTime("");
+    setNewColor(null);
   }
 
   function renderTaskItem(task, dKey, isTodayCol) {
@@ -695,8 +770,8 @@ function WeeklyPlanner() {
           display: "flex",
           flexDirection: "column",
           gap: 5,
-          background: "#fff",
-          border: `1px solid ${COLORS.border}`,
+          background: task.color || "#fff",
+          border: `1px solid ${task.color ? darkenHex(task.color, 25) : COLORS.border}`,
           borderRadius: 10,
           padding: "6px 8px",
           minWidth: 0,
@@ -740,6 +815,22 @@ function WeeklyPlanner() {
             {task.startTime ? `${task.startTime}${task.endTime ? "–" + task.endTime : ""} ` : ""}
             {task.text}
           </span>
+          <button
+            onClick={() => toggleColorPicker(task.id)}
+            aria-label="Szín"
+            title="Szín"
+            style={{
+              border: `1.5px solid ${task.color ? darkenHex(task.color, 25) : COLORS.border}`,
+              background: task.color || "repeating-linear-gradient(45deg, #fff, #fff 2px, #eee 2px, #eee 4px)",
+              width: 14,
+              height: 14,
+              borderRadius: "50%",
+              cursor: "pointer",
+              flexShrink: 0,
+              padding: 0,
+              marginTop: 3,
+            }}
+          />
           <button
             onClick={() => toggleNoteOpen(task.id)}
             aria-label="Jegyzet"
@@ -800,6 +891,15 @@ function WeeklyPlanner() {
             )}
           </div>
         )}
+        {colorPickerOpen.has(task.id) && (
+          <div style={{ marginTop: 4, marginLeft: 24, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 6 }}>
+            <ColorSwatchRow
+              value={task.color || null}
+              onChange={(c) => { updateTaskColor(task.id, c); toggleColorPicker(task.id); }}
+              small
+            />
+          </div>
+        )}
         {expandedNotes.has(task.id) ? (
           <textarea
             value={task.note || ""}
@@ -844,8 +944,9 @@ function WeeklyPlanner() {
     const done = !!task.completions[dKey];
     const shouldPulse = isTodayCol && task.recurrence !== "none" && !done;
     const catStyle = task.category !== "none" && CATEGORY_STYLES[task.category] ? CATEGORY_STYLES[task.category] : null;
-    const bg = catStyle ? catStyle.bg : "#fff";
-    const textColor = catStyle ? catStyle.text : COLORS.text;
+    const bg = task.color || (catStyle ? catStyle.bg : "#fff");
+    const textColor = task.color ? COLORS.text : (catStyle ? catStyle.text : COLORS.text);
+    const borderLeftColor = task.color ? darkenHex(task.color, 30) : COLORS.accent;
     const heightPx = Math.max(20, ((endMin - startMin) / 60) * HOUR_HEIGHT);
     const isTiny = heightPx < 34;
     const topRowH = 16;
@@ -862,7 +963,7 @@ function WeeklyPlanner() {
           inset: 0,
           background: bg,
           border: `1px solid ${COLORS.border}`,
-          borderLeft: `3px solid ${COLORS.accent}`,
+          borderLeft: `3px solid ${borderLeftColor}`,
           borderRadius: 6,
           padding: isTiny ? "1px 4px" : "3px 5px",
           overflow: "hidden",
@@ -916,6 +1017,21 @@ function WeeklyPlanner() {
           )}
           {!isTiny && <div style={{ flex: 1 }} />}
           <button
+            onClick={() => toggleColorPicker(task.id)}
+            aria-label="Szín"
+            title="Szín"
+            style={{
+              border: `1.3px solid ${task.color ? darkenHex(task.color, 25) : COLORS.border}`,
+              background: task.color || "repeating-linear-gradient(45deg, #fff, #fff 2px, #eee 2px, #eee 4px)",
+              width: 11,
+              height: 11,
+              borderRadius: "50%",
+              cursor: "pointer",
+              flexShrink: 0,
+              padding: 0,
+            }}
+          />
+          <button
             onClick={() => toggleNoteOpen(task.id)}
             aria-label="Jegyzet"
             title="Jegyzet"
@@ -954,6 +1070,29 @@ function WeeklyPlanner() {
           <span title={RECUR_LABELS[task.recurrence]} style={{ color: COLORS.textSoft, display: "flex" }}>
             <RefreshCw size={9} />
           </span>
+        )}
+        {colorPickerOpen.has(task.id) && (
+          <div
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              right: 0,
+              marginTop: 2,
+              zIndex: 21,
+              background: "#fff",
+              border: `1px solid ${COLORS.border}`,
+              borderRadius: 8,
+              padding: 6,
+              boxShadow: "0 4px 10px rgba(0,0,0,0.12)",
+            }}
+          >
+            <ColorSwatchRow
+              value={task.color || null}
+              onChange={(c) => { updateTaskColor(task.id, c); toggleColorPicker(task.id); }}
+              small
+            />
+          </div>
         )}
         {expandedNotes.has(task.id) && (
           <div
@@ -1087,9 +1226,10 @@ function WeeklyPlanner() {
   function addGeneralTask() {
     const text = generalText.trim();
     if (!text) return;
-    setGeneralTasks((gs) => [...gs, { id: nextId(), text, category: generalCategory, completed: false, note: "" }]);
+    setGeneralTasks((gs) => [...gs, { id: nextId(), text, category: generalCategory, completed: false, note: "", color: generalColor }]);
     setGeneralText("");
     setGeneralCategory("none");
+    setGeneralColor(null);
   }
   function toggleGeneralTask(id) {
     setGeneralTasks((gs) => gs.map((g) => (g.id === id ? { ...g, completed: !g.completed } : g)));
@@ -1099,6 +1239,12 @@ function WeeklyPlanner() {
   }
   function updateGeneralNote(id, note) {
     setGeneralTasks((gs) => gs.map((g) => (g.id === id ? { ...g, note } : g)));
+  }
+  function updateGeneralColor(id, color) {
+    setGeneralTasks((gs) => gs.map((g) => (g.id === id ? { ...g, color } : g)));
+  }
+  function updateTaskColor(taskId, color) {
+    setTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, color } : t)));
   }
 
 
@@ -1495,6 +1641,7 @@ function WeeklyPlanner() {
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </select>
+                    <ColorSwatchRow value={newColor} onChange={setNewColor} small />
                     <div style={{ display: "flex", gap: 6 }}>
                       <button
                         onClick={() => submitTask(day)}
@@ -1715,6 +1862,7 @@ function WeeklyPlanner() {
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </select>
+                    <ColorSwatchRow value={newColor} onChange={setNewColor} small />
                     <div style={{ display: "flex", gap: 6 }}>
                       <button
                         onClick={() => submitTask(day)}
@@ -1817,8 +1965,8 @@ function WeeklyPlanner() {
                   display: "flex",
                   flexDirection: "column",
                   gap: 5,
-                  background: "#fff",
-                  border: `1px solid ${COLORS.border}`,
+                  background: g.color || "#fff",
+                  border: `1px solid ${g.color ? darkenHex(g.color, 25) : COLORS.border}`,
                   borderRadius: 10,
                   padding: "7px 10px",
                 }}
@@ -1861,6 +2009,22 @@ function WeeklyPlanner() {
                     {g.text}
                   </span>
                   <button
+                    onClick={() => toggleColorPicker(g.id)}
+                    aria-label="Szín"
+                    title="Szín"
+                    style={{
+                      border: `1.5px solid ${g.color ? darkenHex(g.color, 25) : COLORS.border}`,
+                      background: g.color || "repeating-linear-gradient(45deg, #fff, #fff 2px, #eee 2px, #eee 4px)",
+                      width: 14,
+                      height: 14,
+                      borderRadius: "50%",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      padding: 0,
+                      marginTop: 3,
+                    }}
+                  />
+                  <button
                     onClick={() => toggleNoteOpen(g.id)}
                     aria-label="Jegyzet"
                     title="Jegyzet"
@@ -1896,6 +2060,15 @@ function WeeklyPlanner() {
                     <X size={13} />
                   </button>
                 </div>
+                {colorPickerOpen.has(g.id) && (
+                  <div style={{ marginLeft: 24, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 6 }}>
+                    <ColorSwatchRow
+                      value={g.color || null}
+                      onChange={(c) => { updateGeneralColor(g.id, c); toggleColorPicker(g.id); }}
+                      small
+                    />
+                  </div>
+                )}
                 {g.category !== "none" && CATEGORY_STYLES[g.category] && (
                   <div style={{ display: "flex", paddingLeft: 24 }}>
                     <span
@@ -1987,6 +2160,7 @@ function WeeklyPlanner() {
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
+            <ColorSwatchRow value={generalColor} onChange={setGeneralColor} small />
             <button
               onClick={addGeneralTask}
               style={{
