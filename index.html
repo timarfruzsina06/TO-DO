@@ -722,7 +722,9 @@ function WeeklyPlanner() {
               fontSize: 13,
               flex: "1 1 0%",
               minWidth: 0,
-              wordBreak: "break-word",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
               textDecoration: done ? "line-through" : "none",
               color: done ? COLORS.textSoft : COLORS.text,
             }}
@@ -818,7 +820,9 @@ function WeeklyPlanner() {
               fontStyle: "italic",
               color: COLORS.textSoft,
               cursor: "pointer",
-              wordBreak: "break-word",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
           >
             {task.note}
@@ -1300,7 +1304,7 @@ function WeeklyPlanner() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(7, minmax(150px, 1fr))",
+            gridTemplateColumns: "repeat(7, minmax(210px, 1fr))",
             gap: 14,
             overflowX: "auto",
           }}
@@ -1792,7 +1796,9 @@ function WeeklyPlanner() {
                       fontSize: 13,
                       flex: "1 1 0%",
                       minWidth: 0,
-                      wordBreak: "break-word",
+                      whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
                       textDecoration: g.completed ? "line-through" : "none",
                       color: g.completed ? COLORS.textSoft : COLORS.text,
                     }}
@@ -1880,7 +1886,9 @@ function WeeklyPlanner() {
                       fontStyle: "italic",
                       color: COLORS.textSoft,
                       cursor: "pointer",
-                      wordBreak: "break-word",
+                      whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
                     }}
                   >
                     {g.note}
