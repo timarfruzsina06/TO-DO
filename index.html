@@ -317,6 +317,7 @@ function WeeklyPlanner() {
   const [newEndTime, setNewEndTime] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [importMessage, setImportMessage] = useState(null);
+  const [lastImportIds, setLastImportIds] = useState([]);
   const [expandedNotes, setExpandedNotes] = useState(() => new Set());
   const fileInputRef = React.useRef(null);
 
@@ -341,10 +342,17 @@ function WeeklyPlanner() {
       return;
     }
     setTasks((ts) => [...ts, ...imported]);
+    setLastImportIds(imported.map((t) => t.id));
     setImportMessage({
       type: "success",
       text: `${imported.length} esemény importálva (${sourceLabel}).${extraNote ? " " + extraNote : ""}`,
     });
+  }
+
+  function undoImport() {
+    setTasks((ts) => ts.filter((t) => !lastImportIds.includes(t.id)));
+    setLastImportIds([]);
+    setImportMessage(null);
   }
 
   // Szabad szöveges (PDF-ből kinyert, vagy OCR-ezett) tartalom sorról-sorra
@@ -840,6 +848,11 @@ function WeeklyPlanner() {
     const textColor = catStyle ? catStyle.text : COLORS.text;
     const heightPx = Math.max(20, ((endMin - startMin) / 60) * HOUR_HEIGHT);
     const isTiny = heightPx < 34;
+    const topRowH = 16;
+    const textAreaH = Math.max(13, heightPx - topRowH - 6);
+    const maxLines = Math.max(1, Math.floor(textAreaH / 13));
+    const label = `${task.startTime}${task.endTime ? `–${task.endTime}` : ""} ${task.text}`;
+
     return (
       <div
         key={task.id + dKey}
@@ -882,23 +895,26 @@ function WeeklyPlanner() {
           >
             {done && "✓"}
           </button>
-          <span
-            title={task.text}
-            style={{
-              fontSize: 11,
-              lineHeight: 1.15,
-              minWidth: 0,
-              flex: "1 1 auto",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              textDecoration: done ? "line-through" : "none",
-              color: done ? COLORS.textSoft : textColor,
-              fontWeight: 500,
-            }}
-          >
-            {task.startTime}{task.endTime ? `–${task.endTime}` : ""} {task.text}
-          </span>
+          {isTiny && (
+            <span
+              title={task.text}
+              style={{
+                fontSize: 11,
+                lineHeight: 1.15,
+                minWidth: 0,
+                flex: "1 1 auto",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                textDecoration: done ? "line-through" : "none",
+                color: done ? COLORS.textSoft : textColor,
+                fontWeight: 500,
+              }}
+            >
+              {label}
+            </span>
+          )}
+          {!isTiny && <div style={{ flex: 1 }} />}
           <button
             onClick={() => toggleNoteOpen(task.id)}
             aria-label="Jegyzet"
@@ -915,6 +931,25 @@ function WeeklyPlanner() {
             <X size={11} />
           </button>
         </div>
+        {!isTiny && (
+          <div
+            title={task.text}
+            style={{
+              fontSize: 11,
+              lineHeight: "13px",
+              color: done ? COLORS.textSoft : textColor,
+              textDecoration: done ? "line-through" : "none",
+              fontWeight: 500,
+              display: "-webkit-box",
+              WebkitLineClamp: maxLines,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              wordBreak: "break-word",
+            }}
+          >
+            {label}
+          </div>
+        )}
         {task.recurrence !== "none" && !isTiny && (
           <span title={RECUR_LABELS[task.recurrence]} style={{ color: COLORS.textSoft, display: "flex" }}>
             <RefreshCw size={9} />
@@ -1290,12 +1325,32 @@ function WeeklyPlanner() {
             }}
           >
             <span>{importMessage.text}</span>
-            <button
-              onClick={() => setImportMessage(null)}
-              style={{ border: "none", background: "transparent", cursor: "pointer", color: "inherit" }}
-            >
-              <X size={12} />
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+              {importMessage.type === "success" && lastImportIds.length > 0 && (
+                <button
+                  onClick={undoImport}
+                  style={{
+                    border: `1px solid ${COLORS.accentDark}`,
+                    background: "transparent",
+                    color: COLORS.accentDark,
+                    borderRadius: 999,
+                    padding: "3px 10px",
+                    fontSize: 11,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Visszavonás
+                </button>
+              )}
+              <button
+                onClick={() => setImportMessage(null)}
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "inherit" }}
+              >
+                <X size={12} />
+              </button>
+            </div>
           </div>
         )}
 
