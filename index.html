@@ -504,6 +504,11 @@ function WeeklyPlanner() {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 5 }}>
         {showTimeAndRecurrence && (
+          <div style={{ fontSize: 9, color: COLORS.textSoft, marginBottom: -2 }}>
+            Időpont (üresen hagyható)
+          </div>
+        )}
+        {showTimeAndRecurrence && (
           <div style={{ display: "flex", gap: 6 }}>
             <input
               type="time"
@@ -1921,6 +1926,9 @@ function WeeklyPlanner() {
                         fontFamily: "'Work Sans', sans-serif",
                       }}
                     />
+                    <div style={{ fontSize: 10, color: COLORS.textSoft }}>
+                      Időpont (nem kötelező – hagyd üresen, ha nincs konkrét óra)
+                    </div>
                     <div style={{ display: "flex", gap: 6 }}>
                       <input
                         type="time"
@@ -2142,6 +2150,9 @@ function WeeklyPlanner() {
                         fontFamily: "'Work Sans', sans-serif",
                       }}
                     />
+                    <div style={{ fontSize: 10, color: COLORS.textSoft }}>
+                      Időpont (nem kötelező – hagyd üresen, ha nincs konkrét óra)
+                    </div>
                     <div style={{ display: "flex", gap: 6 }}>
                       <input
                         type="time"
