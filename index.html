@@ -152,19 +152,43 @@ function timeToMinutes(t) {
 }
 function clampMin(m) { return Math.max(DAY_START_MIN, Math.min(DAY_END_MIN, m)); }
 
-// Egyszerű, kapzsi oszlop-kiosztás az egy időben átfedő eseményekhez
-// (mint a Google Naptárban, ha két esemény egyszerre van).
+// Oszlop-kiosztás az egy időben átfedő eseményekhez (mint a Google
+// Naptárban). Fontos: csak a ténylegesen egymást átfedő eseményeket
+// csoportosítjuk egy "klaszterbe" – egy korábbi, önmagában álló esemény
+// nem szűkíti le a később következő, tőle független eseményeket.
 function assignColumns(events) {
   const sorted = [...events].sort((a, b) => a.start - b.start);
-  const colEnds = [];
-  const placed = sorted.map((ev) => {
-    let col = colEnds.findIndex((end) => end <= ev.start);
-    if (col === -1) { col = colEnds.length; colEnds.push(ev.end); }
-    else { colEnds[col] = ev.end; }
-    return { ...ev, col };
-  });
-  const totalCols = Math.max(1, colEnds.length);
-  return placed.map((p) => ({ ...p, totalCols }));
+  const result = [];
+  let cluster = [];
+  let clusterEnd = -Infinity;
+
+  function flushCluster() {
+    if (cluster.length === 0) return;
+    const colEnds = [];
+    const placed = cluster.map((ev) => {
+      let col = colEnds.findIndex((end) => end <= ev.start);
+      if (col === -1) { col = colEnds.length; colEnds.push(ev.end); }
+      else { colEnds[col] = ev.end; }
+      return { ...ev, col };
+    });
+    const totalCols = Math.max(1, colEnds.length);
+    placed.forEach((p) => result.push({ ...p, totalCols }));
+    cluster = [];
+  }
+
+  for (const ev of sorted) {
+    if (cluster.length === 0 || ev.start < clusterEnd) {
+      cluster.push(ev);
+      clusterEnd = Math.max(clusterEnd, ev.end);
+    } else {
+      flushCluster();
+      cluster = [ev];
+      clusterEnd = ev.end;
+    }
+  }
+  flushCluster();
+
+  return result;
 }
 const DAY_LETTERS = ["H", "K", "Sz", "Cs", "P", "Sz", "V"];
 const MONTH_NAMES = [
@@ -906,7 +930,7 @@ function WeeklyPlanner() {
         .filter((t) => taskOccursOn(t, day))
         .filter((t) => categoryFilter === "all" || t.category === categoryFilter);
       const positioned = getPositionedEvents(dTasks);
-      return positioned.length > 0 ? positioned[0].totalCols : 1;
+      return positioned.length > 0 ? Math.max(...positioned.map((p) => p.totalCols)) : 1;
     })
   );
   const dayColMinWidth = Math.max(210, 130 * weekMaxCols + 40);
