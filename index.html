@@ -350,6 +350,7 @@ function WeeklyPlanner() {
   const [editCategory, setEditCategory] = useState("none");
   const [editRecurrence, setEditRecurrence] = useState("none");
   const [editApplyConfirm, setEditApplyConfirm] = useState(null);
+  const [colorApplyConfirm, setColorApplyConfirm] = useState(null);
 
   function startEditText(task) {
     setEditingId(task.id);
@@ -1079,7 +1080,7 @@ function WeeklyPlanner() {
           <div style={{ marginTop: 4, marginLeft: 24, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 6 }}>
             <ColorSwatchRow
               value={task.color || null}
-              onChange={(c) => { updateTaskColor(task.id, c); toggleColorPicker(task.id); }}
+              onChange={(c) => requestColorChange(task, c)}
               small
             />
           </div>
@@ -1322,7 +1323,7 @@ function WeeklyPlanner() {
           >
             <ColorSwatchRow
               value={task.color || null}
-              onChange={(c) => { updateTaskColor(task.id, c); toggleColorPicker(task.id); }}
+              onChange={(c) => requestColorChange(task, c)}
               small
             />
           </div>
@@ -1550,6 +1551,33 @@ function WeeklyPlanner() {
   }
   function updateTaskColor(taskId, color) {
     setTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, color } : t)));
+  }
+
+  // Szín módosítása: ha van más, azonos nevű esemény is, megkérdezzük,
+  // hogy csak erre, vagy az összesre alkalmazzuk-e az új színt.
+  function requestColorChange(task, color) {
+    const sameNameOthers = [...tasks, ...generalTasks].filter(
+      (t) => t.id !== task.id && t.text === task.text
+    );
+    if (sameNameOthers.length > 0) {
+      setColorApplyConfirm({ task, color, count: sameNameOthers.length + 1 });
+    } else {
+      applyColorChange(task, color, false);
+    }
+  }
+  function applyColorChange(task, color, applyToAll) {
+    setTasks((ts) =>
+      ts.map((t) => ((applyToAll ? t.text === task.text : t.id === task.id) ? { ...t, color } : t))
+    );
+    setGeneralTasks((gs) =>
+      gs.map((g) => ((applyToAll ? g.text === task.text : g.id === task.id) ? { ...g, color } : g))
+    );
+    setColorPickerOpen((prev) => {
+      const next = new Set(prev);
+      next.delete(task.id);
+      return next;
+    });
+    setColorApplyConfirm(null);
   }
 
 
@@ -2410,7 +2438,7 @@ function WeeklyPlanner() {
                   <div style={{ marginLeft: 24, background: "#fff", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 6 }}>
                     <ColorSwatchRow
                       value={g.color || null}
-                      onChange={(c) => { updateGeneralColor(g.id, c); toggleColorPicker(g.id); }}
+                      onChange={(c) => requestColorChange(g, c)}
                       small
                     />
                   </div>
@@ -2686,6 +2714,87 @@ function WeeklyPlanner() {
               </button>
               <button
                 onClick={() => setEditApplyConfirm(null)}
+                style={{
+                  padding: "9px 0",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "transparent",
+                  color: COLORS.textSoft,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Mégse
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {colorApplyConfirm && (
+        <div
+          onClick={() => setColorApplyConfirm(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(61,49,50,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              borderRadius: 16,
+              padding: "20px 22px",
+              maxWidth: 360,
+              width: "100%",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+            }}
+          >
+            <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 900, fontSize: 20, color: COLORS.accentDark, marginBottom: 8 }}>
+              Szín módosítása
+            </div>
+            <div style={{ fontSize: 13, color: COLORS.text, marginBottom: 18, lineHeight: 1.5 }}>
+              {`„${colorApplyConfirm.task.text}" néven ${colorApplyConfirm.count} esemény szerepel a naptárban. Csak ezt az egyet színezed át, vagy mindegyiket?`}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                onClick={() => applyColorChange(colorApplyConfirm.task, colorApplyConfirm.color, false)}
+                style={{
+                  padding: "9px 0",
+                  borderRadius: 10,
+                  border: `1px solid ${COLORS.border}`,
+                  background: COLORS.panelSoft,
+                  color: COLORS.text,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                Csak ezt az egyet
+              </button>
+              <button
+                onClick={() => applyColorChange(colorApplyConfirm.task, colorApplyConfirm.color, true)}
+                style={{
+                  padding: "9px 0",
+                  borderRadius: 10,
+                  border: "none",
+                  background: COLORS.accent,
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                Mind a {colorApplyConfirm.count} eseményt
+              </button>
+              <button
+                onClick={() => setColorApplyConfirm(null)}
                 style={{
                   padding: "9px 0",
                   borderRadius: 10,
